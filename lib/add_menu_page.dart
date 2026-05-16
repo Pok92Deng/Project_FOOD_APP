@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // เพิ่ม import นี้สำหรับดึงอีเมล
 
 class AddMenuPage extends StatefulWidget {
   const AddMenuPage({super.key});
@@ -45,17 +46,17 @@ class _AddMenuPageState extends State<AddMenuPage> {
     return await snapshot.ref.getDownloadURL();
   }
 
+  // ฟังก์ชันตัวช่วยสำหรับแยกข้อความ (String) ให้กลายเป็นรายการ (List) โดยใช้ลูกน้ำ (,)
+  List<String> textToList(String text) {
+    if (text.isEmpty) return [];
+    return text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+  }
+
   Future<void> addMenu() async {
     final name = nameController.text.trim();
     final category = categoryController.text.trim();
     final description = descriptionController.text.trim();
-    final ingredients = ingredientsController.text.trim();
-    final steps = stepsController.text.trim();
-    final calories = caloriesController.text.trim();
-    final protein = proteinController.text.trim();
-    final suitableForDisease = suitableForDiseaseController.text.trim();
-    final suitableForGoal = suitableForGoalController.text.trim();
-
+    
     if (name.isEmpty || category.isEmpty || description.isEmpty) {
       showMessage('กรุณากรอกชื่อเมนู ประเภท และรายละเอียด');
       return;
@@ -69,17 +70,22 @@ class _AddMenuPageState extends State<AddMenuPage> {
         imageUrl = await uploadImage();
       }
 
+      // ดึงอีเมลของผู้ที่กำลังล็อกอินอยู่
+      final userEmail = FirebaseAuth.instance.currentUser?.email ?? 'ไม่ระบุตัวตน';
+
+      // บันทึกข้อมูลลง Firestore ด้วยรูปแบบใหม่ (แปลง String เป็น List และ int)
       await FirebaseFirestore.instance.collection('menus').add({
         'name': name,
         'category': category,
         'description': description,
-        'ingredients': ingredients,
-        'steps': steps,
-        'calories': calories,
-        'protein': protein,
-        'suitableForDisease': suitableForDisease,
-        'suitableForGoal': suitableForGoal,
+        'ingredients': textToList(ingredientsController.text),
+        'steps': textToList(stepsController.text),
+        'calories': int.tryParse(caloriesController.text.trim()) ?? 0,
+        'protein': int.tryParse(proteinController.text.trim()) ?? 0,
+        'suitableForDisease': textToList(suitableForDiseaseController.text),
+        'suitableForGoal': textToList(suitableForGoalController.text),
         'imageUrl': imageUrl,
+        'authorEmail': userEmail, // เพิ่มผู้สร้างเมนู
         'createdAt': Timestamp.now(),
       });
 
@@ -189,33 +195,35 @@ class _AddMenuPageState extends State<AddMenuPage> {
                   TextField(
                     controller: ingredientsController,
                     maxLines: 3,
-                    decoration: inputStyle('วัตถุดิบ', Icons.shopping_basket),
+                    decoration: inputStyle('วัตถุดิบ (คั่นแต่ละอย่างด้วยลูกน้ำ ,)', Icons.shopping_basket),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: stepsController,
                     maxLines: 4,
-                    decoration: inputStyle('วิธีทำ', Icons.menu_book),
+                    decoration: inputStyle('วิธีทำ (คั่นแต่ละขั้นตอนด้วยลูกน้ำ ,)', Icons.menu_book),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: caloriesController,
-                    decoration: inputStyle('พลังงาน เช่น 250 kcal', Icons.local_fire_department),
+                    keyboardType: TextInputType.number,
+                    decoration: inputStyle('พลังงาน (ใส่ตัวเลข เช่น 250)', Icons.local_fire_department),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: proteinController,
-                    decoration: inputStyle('โปรตีน เช่น 30 g', Icons.fitness_center),
+                    keyboardType: TextInputType.number,
+                    decoration: inputStyle('โปรตีน (ใส่ตัวเลข เช่น 30)', Icons.fitness_center),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: suitableForDiseaseController,
-                    decoration: inputStyle('เหมาะกับโรค', Icons.health_and_safety),
+                    decoration: inputStyle('เหมาะกับโรค (คั่นด้วยลูกน้ำ ,)', Icons.health_and_safety),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: suitableForGoalController,
-                    decoration: inputStyle('เหมาะกับเป้าหมายสุขภาพ', Icons.flag),
+                    decoration: inputStyle('เหมาะกับเป้าหมาย (คั่นด้วยลูกน้ำ ,)', Icons.flag),
                   ),
                   const SizedBox(height: 24),
                   SizedBox(
@@ -224,14 +232,14 @@ class _AddMenuPageState extends State<AddMenuPage> {
                     child: ElevatedButton(
                       onPressed: isLoading ? null : addMenu,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
+                        backgroundColor: Colors.green, // เปลี่ยนเป็นสีเขียวให้เข้ากับแอปสุขภาพ
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
                       child: isLoading
                           ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text('บันทึกเมนู'),
+                          : const Text('บันทึกเมนู', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],

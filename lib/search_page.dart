@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'menu_model.dart';
 import 'menu_detail_page.dart';
 
 class SearchPage extends StatefulWidget {
@@ -10,253 +11,88 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
-  final searchController = TextEditingController();
-
-  String searchText = '';
-  String selectedCategory = 'ทั้งหมด';
-
-  final List<String> categories = [
-    'ทั้งหมด',
-    'อาหารคลีน',
-    'อาหารไทย',
-    'อาหารจานเดียว',
-    'สลัด',
-    'เครื่องดื่ม',
-    'ของหวาน',
-  ];
-
-  bool matchMenu(Map<String, dynamic> data) {
-    final name = (data['name'] ?? '').toString().toLowerCase();
-    final ingredients = (data['ingredients'] ?? '').toString().toLowerCase();
-    final category = (data['category'] ?? '').toString();
-
-    final keyword = searchText.trim().toLowerCase();
-
-    final matchKeyword = keyword.isEmpty
-        ? true
-        : name.contains(keyword) || ingredients.contains(keyword);
-
-    final matchCategory =
-        selectedCategory == 'ทั้งหมด' ? true : category == selectedCategory;
-
-    return matchKeyword && matchCategory;
-  }
-
-  @override
-  void dispose() {
-    searchController.dispose();
-    super.dispose();
-  }
+  String searchQuery = '';
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text('ค้นหาสูตรอาหาร'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        title: Container(
+          decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
+          child: TextField(
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'ค้นหาเมนู, หมวดหมู่, วัตถุดิบ...',
+              border: InputBorder.none, prefixIcon: const Icon(Icons.search, color: Colors.grey),
+              hintStyle: TextStyle(color: Colors.grey.shade500),
+            ),
+            onChanged: (value) => setState(() => searchQuery = value.toLowerCase()),
+          ),
+        ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-            child: TextField(
-              controller: searchController,
-              onChanged: (value) {
-                setState(() {
-                  searchText = value;
-                });
-              },
-              decoration: InputDecoration(
-                hintText: 'ค้นหาจากชื่อเมนูหรือวัตถุดิบ',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
-                ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('menus').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError) return const Center(child: Text('เกิดข้อผิดพลาด'));
+
+          final menus = snapshot.data?.docs.map((doc) => MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList() ?? [];
+
+          final filteredMenus = menus.where((menu) {
+            if (searchQuery.isEmpty) return true;
+            return menu.name.toLowerCase().contains(searchQuery) || 
+                   menu.category.toLowerCase().contains(searchQuery) || 
+                   menu.ingredients.any((i) => i.toLowerCase().contains(searchQuery));
+          }).toList();
+
+          if (filteredMenus.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.search_off, size: 80, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  Text('ไม่พบผลลัพธ์', style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
+                ],
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: DropdownButtonFormField<String>(
-              value: selectedCategory,
-              items: categories
-                  .map(
-                    (item) => DropdownMenuItem(
-                      value: item,
-                      child: Text(item),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedCategory = value!;
-                });
-              },
-              decoration: InputDecoration(
-                labelText: 'ประเภทอาหาร',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('menus').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                }
+            );
+          }
 
-                final docs = snapshot.data!.docs.where((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  return matchMenu(data);
-                }).toList();
-
-                if (docs.isEmpty) {
-                  return const Center(
-                    child: Text('ไม่พบเมนูที่ตรงกับการค้นหา'),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final imageUrl = (data['imageUrl'] ?? '').toString();
-
-                    return GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => MenuDetailPage(
-                              menuId: doc.id,
-                              menuData: data,
-                            ),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              blurRadius: 10,
-                              color: Colors.black.withOpacity(0.05),
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(20),
-                              ),
-                              child: SizedBox(
-                                height: 170,
-                                width: double.infinity,
-                                child: imageUrl.isNotEmpty &&
-                                        imageUrl.startsWith('http')
-                                    ? Image.network(
-                                        imageUrl,
-                                        fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (context, error, stackTrace) {
-                                          return Container(
-                                            color: Colors.grey.shade200,
-                                            child: const Center(
-                                              child: Icon(
-                                                Icons.fastfood,
-                                                size: 60,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      )
-                                    : Container(
-                                        color: Colors.grey.shade200,
-                                        child: const Center(
-                                          child: Icon(
-                                            Icons.fastfood,
-                                            size: 60,
-                                          ),
-                                        ),
-                                      ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange.shade100,
-                                      borderRadius: BorderRadius.circular(30),
-                                    ),
-                                    child: Text(
-                                      (data['category'] ?? '').toString(),
-                                      style: TextStyle(
-                                        color: Colors.orange.shade900,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    (data['name'] ?? '').toString(),
-                                    style: const TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    (data['ingredients'] ?? '').toString(),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey.shade700,
-                                      height: 1.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: filteredMenus.length,
+            itemBuilder: (context, index) {
+              final menu = filteredMenus[index];
+              return Card(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(12),
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: menu.imageUrl.isNotEmpty && menu.imageUrl.startsWith('http')
+                        ? Image.network(menu.imageUrl, width: 60, height: 60, fit: BoxFit.cover, errorBuilder: (c,e,s) => Container(color: Colors.grey.shade200, width: 60, height: 60, child: const Icon(Icons.fastfood)))
+                        : Container(color: Colors.grey.shade200, width: 60, height: 60, child: const Icon(Icons.fastfood)),
+                  ),
+                  title: Text(menu.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  subtitle: Text('${menu.category} • ${menu.calories} kcal', style: TextStyle(color: Colors.green.shade700)),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      // แก้ไขตรงนี้ให้ส่ง menu ไปอย่างถูกต้อง
+                      MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)),
                     );
                   },
-                );
-              },
-            ),
-          ),
-        ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
