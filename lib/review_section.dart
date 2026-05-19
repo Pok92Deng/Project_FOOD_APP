@@ -12,80 +12,49 @@ class ReviewSection extends StatefulWidget {
 }
 
 class _ReviewSectionState extends State<ReviewSection> {
-  final commentController = TextEditingController();
-  double rating = 3;
-  bool isLoading = false;
+  final TextEditingController _commentController = TextEditingController();
+  int _selectedRating = 5;
+  bool _isSubmitting = false;
 
-  Future<void> submitReview() async {
+  Future<void> _submitReview() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final comment = commentController.text.trim();
-
-    if (comment.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('กรุณากรอกความคิดเห็น')),
-      );
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น')));
       return;
     }
 
-    try {
-      setState(() {
-        isLoading = true;
-      });
+    final comment = _commentController.text.trim();
+    if (comment.isEmpty) return;
 
+    setState(() => _isSubmitting = true);
+
+    try {
       await FirebaseFirestore.instance.collection('reviews').add({
         'menuId': widget.menuId,
-        'userEmail': user.email ?? 'ไม่ทราบผู้ใช้',
+        'userId': user.uid,
+        'userEmail': user.email ?? 'ไม่ระบุชื่อ',
+        'rating': _selectedRating,
         'comment': comment,
-        'rating': rating,
         'createdAt': Timestamp.now(),
       });
 
-      commentController.clear();
-      setState(() {
-        rating = 3;
-      });
-
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('บันทึกรีวิวสำเร็จ')),
-      );
+      _commentController.clear();
+      setState(() => _selectedRating = 5);
+      FocusScope.of(context).unfocus(); // ปิดคีย์บอร์ด
+      
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ขอบคุณสำหรับรีวิวของคุณ!')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
     } finally {
-      if (mounted) {
-        setState(() {
-          isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isSubmitting = false);
     }
-  }
-
-  Widget buildStars() {
-    return Row(
-      children: List.generate(5, (index) {
-        final starValue = index + 1;
-        return IconButton(
-          onPressed: () {
-            setState(() {
-              rating = starValue.toDouble();
-            });
-          },
-          icon: Icon(
-            starValue <= rating ? Icons.star : Icons.star_border,
-            color: Colors.orange,
-          ),
-        );
-      }),
-    );
   }
 
   @override
   void dispose() {
-    commentController.dispose();
+    _commentController.dispose();
     super.dispose();
   }
 
@@ -94,93 +63,96 @@ class _ReviewSectionState extends State<ReviewSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'รีวิวและความคิดเห็น',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        buildStars(),
-        TextField(
-          controller: commentController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            hintText: 'เขียนความคิดเห็น...',
-            filled: true,
-            fillColor: Colors.grey.shade100,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
+        const Divider(height: 40, thickness: 1),
+        const Text('รีวิวและความคิดเห็น', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 16),
+        
+        // ฟอร์มสำหรับกรอกรีวิว
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade200)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('ให้คะแนนเมนูนี้', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Row(
+                children: List.generate(5, (index) {
+                  return IconButton(
+                    icon: Icon(index < _selectedRating ? Icons.star : Icons.star_border, color: Colors.orange, size: 30),
+                    onPressed: () => setState(() => _selectedRating = index + 1),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  );
+                }),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _commentController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'เขียนความคิดเห็นของคุณที่นี่...',
+                  filled: true, fillColor: Colors.grey.shade50,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submitReview,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                  child: _isSubmitting 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('ส่งรีวิว', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: isLoading ? null : submitReview,
-            child: isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text('ส่งรีวิว'),
-          ),
-        ),
-        const SizedBox(height: 20),
+        
+        const SizedBox(height: 24),
+        
+        // แสดงรายการรีวิวทั้งหมด
         StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('reviews')
-              .where('menuId', isEqualTo: widget.menuId)
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
+          stream: FirebaseFirestore.instance.collection('reviews').where('menuId', isEqualTo: widget.menuId).orderBy('createdAt', descending: true).snapshots(),
           builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasError) return const Text('ไม่สามารถโหลดรีวิวได้');
+            
+            final reviews = snapshot.data?.docs ?? [];
+            if (reviews.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('ยังไม่มีรีวิวสำหรับเมนูนี้ เป็นคนแรกที่รีวิวสิ!', style: TextStyle(color: Colors.grey.shade600))));
 
-            final reviews = snapshot.data!.docs;
-
-            if (reviews.isEmpty) {
-              return const Text('ยังไม่มีรีวิว');
-            }
-
-            return Column(
-              children: reviews.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final reviewRating = (data['rating'] ?? 0).toDouble();
-
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(), // ปิดการเลื่อนซ้อนกัน
+              itemCount: reviews.length,
+              itemBuilder: (context, index) {
+                final review = reviews[index].data() as Map<String, dynamic>;
+                final rating = review['rating'] ?? 5;
+                
                 return Container(
-                  width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        data['userEmail'] ?? '',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
                       Row(
-                        children: List.generate(5, (index) {
-                          return Icon(
-                            index < reviewRating
-                                ? Icons.star
-                                : Icons.star_border,
-                            color: Colors.orange,
-                            size: 18,
-                          );
-                        }),
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(review['userEmail'].toString().split('@')[0], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          Row(
+                            children: List.generate(5, (starIndex) => Icon(starIndex < rating ? Icons.star : Icons.star_border, color: Colors.orange, size: 16)),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
-                      Text(data['comment'] ?? ''),
+                      Text(review['comment'] ?? '', style: const TextStyle(fontSize: 14, height: 1.4)),
                     ],
                   ),
                 );
-              }).toList(),
+              },
             );
           },
         ),

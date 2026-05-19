@@ -1,192 +1,212 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'menu_model.dart';
+import 'menu_detail_page.dart';
+import 'edit_menu_page.dart';
 
-class ProfilePage extends StatefulWidget {
+class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
-  @override
-  State<ProfilePage> createState() => _ProfilePageState();
-}
-
-class _ProfilePageState extends State<ProfilePage> {
-  final nameController = TextEditingController();
-  final ageController = TextEditingController();
-  final diseaseController = TextEditingController();
-  final goalController = TextEditingController();
-  final preferenceController = TextEditingController();
-
-  bool isLoading = false;
-
-  Future<void> saveProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    try {
-      setState(() => isLoading = true);
-
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'name': nameController.text.trim(),
-        'age': ageController.text.trim(),
-        'disease': diseaseController.text.trim(),
-        'goal': goalController.text.trim(),
-        'preference': preferenceController.text.trim(),
-      });
-
-      showMessage('บันทึกสำเร็จ');
-    } catch (e) {
-      showMessage('Error: $e');
-    } finally {
-      setState(() => isLoading = false);
-    }
-  }
-
-  Future<void> loadProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final doc =
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-
-    if (doc.exists) {
-      final data = doc.data()!;
-      nameController.text = data['name'] ?? '';
-      ageController.text = data['age'] ?? '';
-      diseaseController.text = data['disease'] ?? '';
-      goalController.text = data['goal'] ?? '';
-      preferenceController.text = data['preference'] ?? '';
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    loadProfile();
-  }
-
-  void showMessage(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  InputDecoration inputStyle(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      prefixIcon: Icon(icon),
-      filled: true,
-      fillColor: Colors.grey.shade100,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide.none,
+  // ฟังก์ชันสําหรับแสดงกล่องข้อความยืนยันการลบเมนูอาหาร
+  Future<void> _deleteMenu(BuildContext context, String menuId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ยืนยันการลบ'),
+        content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบเมนูอาหารนี้ออกจากระบบ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ลบเมนู', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
-  }
 
-  @override
-  void dispose() {
-    nameController.dispose();
-    ageController.dispose();
-    diseaseController.dispose();
-    goalController.dispose();
-    preferenceController.dispose();
-    super.dispose();
+    if (confirmed == true) {
+      try {
+        await FirebaseFirestore.instance.collection('menus').doc(menuId).delete();
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ลบเมนูอาหารสำเร็จแล้ว')),
+        );
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final String userEmail = user?.email ?? 'ไม่ระบุอีเมล';
+    final String username = userEmail.split('@')[0];
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text('โปรไฟล์'),
+        title: const Text('โปรไฟล์ของฉัน', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (!context.mounted) return;
+              Navigator.pop(context); // ปิดหน้าโปรไฟล์ ระบบใน main.dart จะพากลับไปหน้า Login อัตโนมัติ
+            },
+          ),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: Colors.orange.shade100,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Icon(
-                Icons.person,
-                size: 60,
-                color: Colors.orange.shade800,
-              ),
+      body: Column(
+        children: [
+          // ส่วนแสดงข้อมูลดิสเพลย์ผู้ใช้งาน
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
             ),
-            const SizedBox(height: 12),
-            Text(
-              user?.email ?? '',
-              style: const TextStyle(fontSize: 14),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 45,
+                  backgroundColor: Colors.green.shade100,
+                  child: Text(
+                    username.isNotEmpty ? username[0].toUpperCase() : 'U',
+                    style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.green.shade900),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  username,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  userEmail,
+                  style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: nameController,
-                    decoration: inputStyle('ชื่อ', Icons.person_outline),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: ageController,
-                    keyboardType: TextInputType.number,
-                    decoration: inputStyle('อายุ', Icons.cake_outlined),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: diseaseController,
-                    decoration:
-                        inputStyle('โรคประจำตัว', Icons.health_and_safety),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: goalController,
-                    decoration:
-                        inputStyle('เป้าหมายสุขภาพ', Icons.flag_outlined),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: preferenceController,
-                    decoration:
-                        inputStyle('ความชอบอาหาร', Icons.favorite_outline),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: isLoading ? null : saveProfile,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+          ),
+          const SizedBox(height: 16),
+          
+          // ส่วนหัวข้อรายการเมนูที่ฉันสร้าง
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.restaurant_menu, size: 20, color: Colors.green),
+                const SizedBox(width: 8),
+                Text(
+                  'เมนูอาหารที่ฉันสร้าง',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          
+          // รายการดึงข้อมูลเฉพาะเมนูของตัวเองมาโชว์
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('menus')
+                  .where('authorEmail', isEqualTo: userEmail)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return const Center(child: Text('เกิดข้อผิดพลาดในการโหลดข้อมูลเมนู'));
+                }
+
+                final docs = snapshot.data?.docs ?? [];
+                final myMenus = docs.map((doc) => MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList();
+
+                if (myMenus.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.layers_clear, size: 60, color: Colors.grey.shade300),
+                        const SizedBox(height: 12),
+                        Text(
+                          'คุณยังไม่ได้แชร์สูตรหรือสร้างเมนูใดๆ',
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
                         ),
-                      ),
-                      child: isLoading
-                          ? const CircularProgressIndicator(
-                              color: Colors.white,
-                            )
-                          : const Text('บันทึกข้อมูล'),
+                      ],
                     ),
-                  ),
-                ],
-              ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  itemCount: myMenus.length,
+                  itemBuilder: (context, index) {
+                    final menu = myMenus[index];
+                    return Card(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      elevation: 1,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.all(12),
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: menu.imageUrl.isNotEmpty && menu.imageUrl.startsWith('http')
+                              ? Image.network(menu.imageUrl, width: 55, height: 55, fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood)))
+                              : Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood)),
+                        ),
+                        title: Text(menu.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        subtitle: Text('${menu.category} • ${menu.calories} kcal', style: TextStyle(color: Colors.green.shade700)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // ปุ่มแก้ไขเมนู
+                            IconButton(
+                              icon: const Icon(Icons.edit, color: Colors.orange),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => EditMenuPage(menu: menu)),
+                                );
+                              },
+                            ),
+                            // ปุ่มลบเมนู
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.redAccent),
+                              onPressed: () => _deleteMenu(context, menu.id),
+                            ),
+                          ],
+                        ),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
