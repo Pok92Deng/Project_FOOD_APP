@@ -1,262 +1,124 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'community_detail_page.dart';
+import 'menu_model.dart';
+import 'menu_detail_page.dart';
 
 class TrendingPostsPage extends StatelessWidget {
   const TrendingPostsPage({super.key});
+
+  // ฟังก์ชันสร้างสัญลักษณ์อันดับ (เหรียญทอง, เงิน, ทองแดง)
+  Widget _buildRankBadge(int index) {
+    if (index == 0) return const CircleAvatar(backgroundColor: Color(0xFFFFD700), radius: 15, child: Icon(Icons.emoji_events, color: Colors.white, size: 18));
+    if (index == 1) return const CircleAvatar(backgroundColor: Color(0xFFC0C0C0), radius: 15, child: Icon(Icons.emoji_events, color: Colors.white, size: 18));
+    if (index == 2) return const CircleAvatar(backgroundColor: Color(0xFFCD7F32), radius: 15, child: Icon(Icons.emoji_events, color: Colors.white, size: 18));
+    return CircleAvatar(backgroundColor: Colors.grey.shade200, radius: 15, child: Text('${index + 1}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)));
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text('โพสต์ยอดนิยม'),
+        title: const Text('โพสต์ยอดฮิต 🔥', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('community_posts')
-            .snapshots(),
-        builder: (context, postSnapshot) {
-          if (!postSnapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        stream: FirebaseFirestore.instance.collection('community_posts').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          
+          final docs = snapshot.data?.docs ?? [];
+          if (docs.isEmpty) return const Center(child: Text('ยังไม่มีโพสต์ให้จัดอันดับ'));
 
-          return StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('community_likes')
-                .snapshots(),
-            builder: (context, likeSnapshot) {
-              if (!likeSnapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          // 1. นำข้อมูลมานับยอด Like และจัดเรียง
+          List<Map<String, dynamic>> trendingList = docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            final List<dynamic> likes = data['likes'] ?? [];
+            return {'id': doc.id, 'likeCount': likes.length, ...data};
+          }).toList();
 
-              return StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('community_comments')
-                    .snapshots(),
-                builder: (context, commentSnapshot) {
-                  if (!commentSnapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+          trendingList.sort((a, b) => b['likeCount'].compareTo(a['likeCount']));
+          // กรองเอาเฉพาะที่มีคน Like (ถ้าต้องการ)
+          trendingList = trendingList.where((item) => item['likeCount'] > 0).toList();
 
-                  final posts = postSnapshot.data!.docs;
-                  final likes = likeSnapshot.data!.docs;
-                  final comments = commentSnapshot.data!.docs;
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: trendingList.length,
+            itemBuilder: (context, index) {
+              final post = trendingList[index];
+              final String menuId = post['menuId'] ?? '';
+              final String username = (post['userEmail'] ?? 'User').toString().split('@')[0];
 
-                  if (posts.isEmpty) {
-                    return const Center(
-                      child: Text('ยังไม่มีโพสต์ในชุมชน'),
-                    );
-                  }
+              // 🌟 ใช้ FutureBuilder เพื่อไปดึงรูปภาพและข้อมูลจาก Collection 'menus'
+              return FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance.collection('menus').doc(menuId).get(),
+                builder: (context, menuSnapshot) {
+                  if (!menuSnapshot.hasData || !menuSnapshot.data!.exists) return const SizedBox();
 
-                  final Map<String, int> likeCountMap = {};
-                  for (final likeDoc in likes) {
-                    final likeData = likeDoc.data() as Map<String, dynamic>;
-                    final postId = (likeData['postId'] ?? '').toString();
-                    if (postId.isNotEmpty) {
-                      likeCountMap[postId] = (likeCountMap[postId] ?? 0) + 1;
-                    }
-                  }
+                  final menuData = menuSnapshot.data!.data() as Map<String, dynamic>;
+                  final menu = MenuModel.fromMap(menuSnapshot.data!.id, menuData);
 
-                  final Map<String, int> commentCountMap = {};
-                  for (final commentDoc in comments) {
-                    final commentData =
-                        commentDoc.data() as Map<String, dynamic>;
-                    final recipeId =
-                        (commentData['recipeId'] ?? '').toString();
-                    if (recipeId.isNotEmpty) {
-                      commentCountMap[recipeId] =
-                          (commentCountMap[recipeId] ?? 0) + 1;
-                    }
-                  }
-
-                  final sortedPosts = [...posts];
-                  sortedPosts.sort((a, b) {
-                    final aCount = likeCountMap[a.id] ?? 0;
-                    final bCount = likeCountMap[b.id] ?? 0;
-                    return bCount.compareTo(aCount);
-                  });
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: sortedPosts.length,
-                    itemBuilder: (context, index) {
-                      final postDoc = sortedPosts[index];
-                      final postData = postDoc.data() as Map<String, dynamic>;
-                      final menuId = (postData['menuId'] ?? '').toString();
-                      final likeCount = likeCountMap[postDoc.id] ?? 0;
-                      final commentCount = commentCountMap[postDoc.id] ?? 0;
-
-                      return FutureBuilder<DocumentSnapshot>(
-                        future: FirebaseFirestore.instance
-                            .collection('menus')
-                            .doc(menuId)
-                            .get(),
-                        builder: (context, menuSnapshot) {
-                          if (!menuSnapshot.hasData) {
-                            return const SizedBox();
-                          }
-
-                          if (!menuSnapshot.data!.exists) {
-                            return const SizedBox();
-                          }
-
-                          final menuData =
-                              menuSnapshot.data!.data() as Map<String, dynamic>;
-                          final imageUrl =
-                              (menuData['imageUrl'] ?? '').toString();
-
-                          return GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => CommunityDetailPage(
-                                    postId: postDoc.id,
-                                    menuId: menuId,
-                                    postData: postData,
-                                    menuData: menuData,
+                  return Card(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    elevation: index < 3 ? 4 : 1,
+                    child: InkWell(
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MenuDetailPage(menu: menu))),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 🖼 ส่วนแสดงรูปภาพขนาดใหญ่
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                                child: Image.network(
+                                  menu.imageUrl,
+                                  height: 180,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(height: 180, color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 50)),
+                                ),
+                              ),
+                              // ป้ายอันดับ
+                              Positioned(top: 12, left: 12, child: _buildRankBadge(index)),
+                              // ป้ายยอด Like
+                              Positioned(
+                                top: 12, right: 12,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.favorite, color: Colors.red, size: 16),
+                                      const SizedBox(width: 4),
+                                      Text('${post['likeCount']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    ],
                                   ),
                                 ),
-                              );
-                            },
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: [
-                                  BoxShadow(
-                                    blurRadius: 10,
-                                    color: Colors.black.withOpacity(0.05),
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (imageUrl.isNotEmpty &&
-                                      imageUrl.startsWith('http'))
-                                    ClipRRect(
-                                      borderRadius:
-                                          const BorderRadius.vertical(
-                                        top: Radius.circular(20),
-                                      ),
-                                      child: Image.network(
-                                        imageUrl,
-                                        height: 180,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                        errorBuilder:
-                                            (context, error, stackTrace) {
-                                          return Container(
-                                            height: 180,
-                                            color: Colors.grey.shade200,
-                                            child: const Center(
-                                              child: Icon(
-                                                Icons.fastfood,
-                                                size: 60,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    )
-                                  else
-                                    Container(
-                                      height: 180,
-                                      color: Colors.grey.shade200,
-                                      child: const Center(
-                                        child: Icon(
-                                          Icons.fastfood,
-                                          size: 60,
-                                        ),
-                                      ),
-                                    ),
-                                  Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.orange.shade100,
-                                                borderRadius:
-                                                    BorderRadius.circular(30),
-                                              ),
-                                              child: Text(
-                                                '#${index + 1} ยอดนิยม',
-                                                style: TextStyle(
-                                                  color: Colors.orange.shade900,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            const Icon(
-                                              Icons.favorite,
-                                              color: Colors.red,
-                                              size: 18,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text('$likeCount'),
-                                            const SizedBox(width: 12),
-                                            const Icon(
-                                              Icons.comment,
-                                              color: Colors.blueGrey,
-                                              size: 18,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text('$commentCount'),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          (menuData['name'] ?? '').toString(),
-                                          style: const TextStyle(
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          'แชร์โดย: ${(postData['userEmail'] ?? '').toString()}',
-                                          style: TextStyle(
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          (postData['caption'] ?? '').toString(),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            ],
+                          ),
+                          // ข้อมูลรายละเอียด
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(menu.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                Text('โดย: $username', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                                const SizedBox(height: 8),
+                                Text(post['caption'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black54)),
+                              ],
                             ),
-                          );
-                        },
-                      );
-                    },
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 },
               );

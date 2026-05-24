@@ -1,22 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'community_comment_section.dart';
-import 'edit_community_post_page.dart';
-import 'user_profile_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class CommunityDetailPage extends StatefulWidget {
   final String postId;
-  final String menuId;
   final Map<String, dynamic> postData;
-  final Map<String, dynamic> menuData;
 
   const CommunityDetailPage({
     super.key,
     required this.postId,
-    required this.menuId,
     required this.postData,
-    required this.menuData,
   });
 
   @override
@@ -24,330 +17,201 @@ class CommunityDetailPage extends StatefulWidget {
 }
 
 class _CommunityDetailPageState extends State<CommunityDetailPage> {
-  bool isLiked = false;
-  String? likeDocId;
+  final TextEditingController _commentController = TextEditingController();
+  bool _isSubmitting = false;
 
-  @override
-  void initState() {
-    super.initState();
-    checkLikeStatus();
-  }
-
-  Future<void> checkLikeStatus() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
-
-    final snapshot = await FirebaseFirestore.instance
-        .collection('community_likes')
-        .where('postId', isEqualTo: widget.postId)
-        .where('userId', isEqualTo: currentUser.uid)
-        .get();
-
-    if (snapshot.docs.isNotEmpty) {
-      setState(() {
-        isLiked = true;
-        likeDocId = snapshot.docs.first.id;
-      });
+  Future<void> _submitComment() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาเข้าสู่ระบบเพื่อคอมเมนต์')));
+      return;
     }
-  }
 
-  Future<void> toggleLike() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
+    final comment = _commentController.text.trim();
+    if (comment.isEmpty) return;
 
-    if (isLiked && likeDocId != null) {
-      await FirebaseFirestore.instance
-          .collection('community_likes')
-          .doc(likeDocId)
-          .delete();
+    setState(() => _isSubmitting = true);
 
-      setState(() {
-        isLiked = false;
-        likeDocId = null;
-      });
-    } else {
-      final doc =
-          await FirebaseFirestore.instance.collection('community_likes').add({
+    try {
+      await FirebaseFirestore.instance.collection('community_comments').add({
         'postId': widget.postId,
-        'userId': currentUser.uid,
+        'userId': user.uid,
+        'userEmail': user.email ?? 'ไม่ระบุตัวตน',
+        'comment': comment,
         'createdAt': Timestamp.now(),
       });
 
-      setState(() {
-        isLiked = true;
-        likeDocId = doc.id;
-      });
-    }
-  }
-
-  Future<void> deletePost(BuildContext context) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('community_posts')
-          .doc(widget.postId)
-          .delete();
-
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ลบโพสต์สำเร็จ')),
-      );
-
-      Navigator.pop(context);
+      if (!mounted) return;
+      _commentController.clear();
+      FocusScope.of(context).unfocus(); // ปิดคีย์บอร์ดหลังจากส่งข้อความ
     } catch (e) {
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
-  Widget buildInfoCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  value.isEmpty ? '-' : value,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    height: 1.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    final postOwnerId = (widget.postData['userId'] ?? '').toString();
-    final isOwner = currentUser != null && currentUser.uid == postOwnerId;
-
-    final imageUrl = (widget.menuData['imageUrl'] ?? '').toString();
-    final name = (widget.menuData['name'] ?? '').toString();
-    final category = (widget.menuData['category'] ?? '').toString();
-    final description = (widget.menuData['description'] ?? '').toString();
-    final ingredients = (widget.menuData['ingredients'] ?? '').toString();
-    final steps = (widget.menuData['steps'] ?? '').toString();
-
-    final caption = (widget.postData['caption'] ?? '').toString();
-    final userEmail = (widget.postData['userEmail'] ?? '').toString();
-    final userId = (widget.postData['userId'] ?? '').toString();
+    final String userEmail = widget.postData['userEmail']?.toString() ?? 'ไม่ระบุตัวตน';
+    final String username = userEmail.isNotEmpty && userEmail != 'ไม่ระบุตัวตน' ? userEmail.split('@')[0] : 'U';
+    final String caption = widget.postData['caption']?.toString() ?? '';
+    final List<dynamic> likes = widget.postData['likes'] is List ? List.from(widget.postData['likes']) : [];
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text('โพสต์จากชุมชน'),
+        title: const Text('โพสต์ของชุมชน', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(
-              isLiked ? Icons.favorite : Icons.favorite_border,
-              color: Colors.red,
-            ),
-            onPressed: toggleLike,
-          ),
-          if (isOwner)
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => EditCommunityPostPage(
-                      postId: widget.postId,
-                      postData: widget.postData,
-                    ),
-                  ),
-                );
-              },
-            ),
-          if (isOwner)
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              onPressed: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (_) => AlertDialog(
-                    title: const Text('ยืนยันการลบ'),
-                    content: const Text('ต้องการลบโพสต์นี้ใช่หรือไม่?'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('ยกเลิก'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text('ลบ'),
-                      ),
-                    ],
-                  ),
-                );
-
-                if (confirm == true) {
-                  await deletePost(context);
-                }
-              },
-            ),
-        ],
+        elevation: 1,
       ),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
+      body: Column(
         children: [
-          SizedBox(
-            height: 240,
-            width: double.infinity,
-            child: imageUrl.isNotEmpty && imageUrl.startsWith('http')
-                ? Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.grey.shade200,
-                        child: const Center(
-                          child: Icon(Icons.fastfood, size: 80),
-                        ),
-                      );
-                    },
-                  )
-                : Container(
-                    color: Colors.grey.shade200,
-                    child: const Center(
-                      child: Icon(Icons.fastfood, size: 80),
-                    ),
-                  ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
+          // 1. ส่วนแสดงเนื้อหาโพสต์ต้นฉบับ
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: Colors.green.shade100,
+                      child: Text(
+                        username.isNotEmpty ? username[0].toUpperCase() : 'U', 
+                        style: TextStyle(color: Colors.green.shade900, fontWeight: FontWeight.bold)
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(username, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
+                if (caption.isNotEmpty) Text(caption, style: const TextStyle(fontSize: 16, height: 1.4)),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Icon(Icons.favorite, color: Colors.redAccent, size: 18),
+                    const SizedBox(width: 6),
+                    Text('${likes.length} คนถูกใจสิ่งนี้', style: TextStyle(color: Colors.grey.shade600)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          
+          const Divider(height: 1, thickness: 1),
 
-                GestureDetector(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => UserProfilePage(
-                          userId: userId,
-                          userEmail: userEmail,
-                        ),
+          // 2. ส่วนแสดงรายการความคิดเห็น (แก้ไขถอน orderBy เพื่อป้องกันปัญหา Index ของ Firebase)
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('community_comments')
+                  .where('postId', isEqualTo: widget.postId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                
+                final rawComments = snapshot.data?.docs ?? [];
+
+                if (rawComments.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 60, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text('ยังไม่มีความคิดเห็น\nเป็นคนแรกที่คอมเมนต์สิ!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade500)),
+                      ],
+                    ),
+                  );
+                }
+
+                // นำคอมเมนต์มาจัดเรียงเวลาในเครื่องมือถือแทน (เก่าไปใหม่ ใครพิมพ์ก่อนอยู่บน)
+                var comments = rawComments.toList();
+                comments.sort((a, b) {
+                  final aTime = (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                  final bTime = (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                  if (aTime == null || bTime == null) return 0;
+                  return aTime.compareTo(bTime);
+                });
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: comments.length,
+                  itemBuilder: (context, index) {
+                    final data = comments[index].data() as Map<String, dynamic>;
+                    final commenterName = (data['userEmail']?.toString() ?? 'User').split('@')[0];
+                    final commentText = data['comment']?.toString() ?? '';
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.02),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          )
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(commenterName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green)),
+                          const SizedBox(height: 4),
+                          Text(commentText, style: const TextStyle(fontSize: 15)),
+                        ],
                       ),
                     );
                   },
-                  child: Text(
-                    'แชร์โดย $userEmail',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.blue,
-                      decoration: TextDecoration.underline,
+                );
+              },
+            ),
+          ),
+
+          // 3. ส่วนพิมพ์คอมเมนต์ด้านล่างสุด
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Colors.black12)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _commentController,
+                    decoration: InputDecoration(
+                      hintText: 'แสดงความคิดเห็น...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                      filled: true,
+                      fillColor: Colors.grey.shade100,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 10),
-
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('community_likes')
-                      .where('postId', isEqualTo: widget.postId)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    final likeCount = snapshot.data?.docs.length ?? 0;
-
-                    return Row(
-                      children: [
-                        const Icon(
-                          Icons.favorite,
-                          color: Colors.red,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Text('$likeCount คนถูกใจโพสต์นี้'),
-                      ],
-                    );
-                  },
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: _isSubmitting 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.send, color: Colors.green),
+                  onPressed: _isSubmitting ? null : _submitComment,
                 ),
-
-                const SizedBox(height: 16),
-
-                buildInfoCard(
-                  title: 'ข้อความจากผู้แชร์',
-                  value: caption,
-                  icon: Icons.campaign,
-                  color: Colors.orange,
-                ),
-                buildInfoCard(
-                  title: 'ประเภทอาหาร',
-                  value: category,
-                  icon: Icons.category,
-                  color: Colors.blue,
-                ),
-                buildInfoCard(
-                  title: 'รายละเอียด',
-                  value: description,
-                  icon: Icons.description,
-                  color: Colors.teal,
-                ),
-                buildInfoCard(
-                  title: 'วัตถุดิบ',
-                  value: ingredients,
-                  icon: Icons.shopping_basket,
-                  color: Colors.green,
-                ),
-                buildInfoCard(
-                  title: 'วิธีทำ',
-                  value: steps,
-                  icon: Icons.menu_book,
-                  color: Colors.purple,
-                ),
-
-                const SizedBox(height: 24),
-
-                CommunityCommentSection(recipeId: widget.postId),
               ],
             ),
           ),

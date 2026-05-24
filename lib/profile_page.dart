@@ -5,39 +5,46 @@ import 'menu_model.dart';
 import 'menu_detail_page.dart';
 import 'edit_menu_page.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
-  // ฟังก์ชันสําหรับแสดงกล่องข้อความยืนยันการลบเมนูอาหาร
-  Future<void> _deleteMenu(BuildContext context, String menuId) async {
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+
+  Future<void> _deleteMenu(String menuId) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('ยืนยันการลบ'),
-        content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบเมนูอาหารนี้ออกจากระบบ?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('ยกเลิก'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('ลบเมนู', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('ยืนยันการลบ'),
+          content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบเมนูอาหารนี้ออกจากระบบ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('ยกเลิก'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('ลบเมนู', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
     );
 
     if (confirmed == true) {
       try {
         await FirebaseFirestore.instance.collection('menus').doc(menuId).delete();
-        if (!context.mounted) return;
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('ลบเมนูอาหารสำเร็จแล้ว')),
         );
       } catch (e) {
-        if (!context.mounted) return;
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
         );
@@ -63,15 +70,14 @@ class ProfilePage extends StatelessWidget {
             icon: const Icon(Icons.logout, color: Colors.redAccent),
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-              if (!context.mounted) return;
-              Navigator.pop(context); // ปิดหน้าโปรไฟล์ ระบบใน main.dart จะพากลับไปหน้า Login อัตโนมัติ
+              if (!mounted) return;
+              Navigator.pop(context); 
             },
           ),
         ],
       ),
       body: Column(
         children: [
-          // ส่วนแสดงข้อมูลดิสเพลย์ผู้ใช้งาน
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
@@ -90,36 +96,25 @@ class ProfilePage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  username,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                ),
+                Text(username, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text(
-                  userEmail,
-                  style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-                ),
+                Text(userEmail, style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
               ],
             ),
           ),
           const SizedBox(height: 16),
           
-          // ส่วนหัวข้อรายการเมนูที่ฉันสร้าง
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Row(
               children: [
                 Icon(Icons.restaurant_menu, size: 20, color: Colors.green),
-                const SizedBox(width: 8),
-                Text(
-                  'เมนูอาหารที่ฉันสร้าง',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                SizedBox(width: 8),
+                Text('เมนูอาหารที่ฉันสร้าง', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
           
-          // รายการดึงข้อมูลเฉพาะเมนูของตัวเองมาโชว์
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -144,10 +139,7 @@ class ProfilePage extends StatelessWidget {
                       children: [
                         Icon(Icons.layers_clear, size: 60, color: Colors.grey.shade300),
                         const SizedBox(height: 12),
-                        Text(
-                          'คุณยังไม่ได้แชร์สูตรหรือสร้างเมนูใดๆ',
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
-                        ),
+                        Text('คุณยังไม่ได้สร้างเมนูใดๆ', style: TextStyle(color: Colors.grey.shade500, fontSize: 15)),
                       ],
                     ),
                   );
@@ -167,8 +159,7 @@ class ProfilePage extends StatelessWidget {
                         leading: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: menu.imageUrl.isNotEmpty && menu.imageUrl.startsWith('http')
-                              ? Image.network(menu.imageUrl, width: 55, height: 55, fit: BoxFit.cover,
-                                  errorBuilder: (c, e, s) => Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood)))
+                              ? Image.network(menu.imageUrl, width: 55, height: 55, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood)))
                               : Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood)),
                         ),
                         title: Text(menu.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
@@ -176,28 +167,20 @@ class ProfilePage extends StatelessWidget {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // ปุ่มแก้ไขเมนู
                             IconButton(
                               icon: const Icon(Icons.edit, color: Colors.orange),
                               onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => EditMenuPage(menu: menu)),
-                                );
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => EditMenuPage(menu: menu)));
                               },
                             ),
-                            // ปุ่มลบเมนู
                             IconButton(
                               icon: const Icon(Icons.delete, color: Colors.redAccent),
-                              onPressed: () => _deleteMenu(context, menu.id),
+                              onPressed: () => _deleteMenu(menu.id),
                             ),
                           ],
                         ),
                         onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)),
-                          );
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)));
                         },
                       ),
                     );
