@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'home_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -16,6 +17,7 @@ class _LoginPageState extends State<LoginPage> {
   bool isLoading = false;
   bool obscurePassword = true;
 
+  // 🌟 ฟังก์ชัน Login (เช็คและสร้างข้อมูลเริ่มต้นถ้ายังไม่มี)
   Future<void> login() async {
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
@@ -30,10 +32,42 @@ class _LoginPageState extends State<LoginPage> {
         isLoading = true;
       });
 
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+
+      if (userCredential.user != null) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userCredential.user!.uid)
+            .get();
+
+        if (!userDoc.exists) {
+          // ถ้าไม่มีข้อมูลใน Firestore ให้สร้างใหม่พร้อม "ค่าเริ่มต้นสำหรับหน้าโปรไฟล์"
+          await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).set({
+            'email': email,
+            'displayName': email.split('@')[0],
+            'status': 'active',
+            'warnCount': 0,
+            'isOnline': true,
+            'createdAt': FieldValue.serverTimestamp(),
+            // 👇 ข้อมูลตั้งต้นเพื่อไม่ให้หน้าโปรไฟล์บัคหรือหายไป
+            'profileImageUrl': '',
+            'bio': 'ยังไม่มีคำแนะนำตัว',
+            'weight': 0,
+            'height': 0,
+            'disease': 'ไม่มี',
+            'gender': 'ไม่ระบุ',
+            'age': 0,
+          });
+        } else {
+          // ถ้ามีข้อมูลอยู่แล้ว แค่อัปเดตสถานะ Online
+          await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).update({
+            'isOnline': true,
+          });
+        }
+      }
 
       if (!mounted) return;
 
@@ -56,6 +90,7 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  // 🌟 ฟังก์ชัน Register (บันทึกข้อมูลผู้ใช้ใหม่พร้อมค่าโปรไฟล์เริ่มต้น)
   Future<void> register() async {
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
@@ -70,10 +105,30 @@ class _LoginPageState extends State<LoginPage> {
         isLoading = true;
       });
 
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
+
+      if (userCredential.user != null) {
+        // สร้างข้อมูลผู้ใช้ใหม่พร้อม "ค่าเริ่มต้นสำหรับหน้าโปรไฟล์"
+        await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).set({
+          'email': email,
+          'displayName': email.split('@')[0], 
+          'status': 'active', 
+          'warnCount': 0,
+          'isOnline': true,
+          'createdAt': FieldValue.serverTimestamp(),
+          // 👇 ข้อมูลตั้งต้นเพื่อไม่ให้หน้าโปรไฟล์บัคหรือหายไป
+          'profileImageUrl': '',
+          'bio': 'ยังไม่มีคำแนะนำตัว',
+          'weight': 0,
+          'height': 0,
+          'disease': 'ไม่มี',
+          'gender': 'ไม่ระบุ',
+          'age': 0,
+        });
+      }
 
       if (!mounted) return;
 

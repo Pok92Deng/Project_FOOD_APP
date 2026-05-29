@@ -11,15 +11,30 @@ class RecommendPage extends StatefulWidget {
 }
 
 class _RecommendPageState extends State<RecommendPage> {
-  // 📝 รายการตัวเลือก (สามารถเพิ่ม/ลด ให้ตรงกับคำที่คุณมักจะพิมพ์ในหน้าเพิ่มเมนูได้)
-  final List<String> diseaseOptions = ['เบาหวาน', 'ความดัน', 'โรคหัวใจ', 'โรคไต', 'ไขมันในเลือดสูง', 'เกาต์'];
+  // 🌟 อัปเดตรายชื่อ 13 โรคยอดฮิตให้ตรงกับเว็บแอดมิน
+  final List<String> diseaseOptions = [
+    'ความดัน', 'เบาหวาน', 'ไขมันในเลือด', 'โรคหัวใจ', 'หลอดเลือดสมอง', 
+    'โรคไต', 'โรคมะเร็ง', 'โรคอ้วน', 'ภูมิแพ้', 'หอบหืด', 'โรคปอด', 'เกาต์', 'ไทรอยด์'
+  ];
   final List<String> goalOptions = ['ลดน้ำหนัก', 'เพิ่มกล้ามเนื้อ', 'รักษาสุขภาพ', 'อาหารคลีน', 'คีโต', 'มังสวิรัติ'];
 
-  // เก็บค่าที่ผู้ใช้กำลังเลือก
   List<String> selectedDiseases = [];
   List<String> selectedGoals = [];
 
-  // วิดเจ็ตสำหรับสร้างปุ่มตัวเลือก (FilterChip)
+  // 🧠 ฟังก์ชันเทียบคำอัจฉริยะ (Fuzzy Match)
+  bool isSmartMatch(String word1, String word2) {
+    // 1. ตัดคำว่า "โรค" ออก และลบช่องว่างซ้ายขวา
+    String clean1 = word1.replaceAll('โรค', '').trim().toLowerCase();
+    String clean2 = word2.replaceAll('โรค', '').trim().toLowerCase();
+    
+    // ถ้าลบแล้วเหลือค่าว่าง ให้ข้ามไป
+    if (clean1.isEmpty || clean2.isEmpty) return false;
+
+    // 2. เช็คว่าคำใดคำหนึ่ง ไปซ่อนเป็นส่วนหนึ่งของอีกคำหรือไม่ 
+    // (เช่น "ความดันโลหิตสูง" กับ "ความดัน" ก็จะเจอกัน!)
+    return clean1.contains(clean2) || clean2.contains(clean1);
+  }
+
   Widget buildFilterChips(List<String> options, List<String> selectedList, Color activeColor) {
     return Wrap(
       spacing: 8,
@@ -66,7 +81,6 @@ class _RecommendPageState extends State<RecommendPage> {
       ),
       body: Column(
         children: [
-          // ส่วนที่ 1: แผงควบคุมสำหรับเลือกเงื่อนไข (Filters)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
@@ -92,7 +106,6 @@ class _RecommendPageState extends State<RecommendPage> {
             ),
           ),
           
-          // ส่วนที่ 2: แสดงผลลัพธ์การแนะนำ
           Expanded(
             child: (selectedDiseases.isEmpty && selectedGoals.isEmpty)
                 ? Center(
@@ -118,38 +131,37 @@ class _RecommendPageState extends State<RecommendPage> {
                         return const Center(child: Text('เกิดข้อผิดพลาดในการโหลดข้อมูล'));
                       }
 
-                      // แปลงข้อมูลเป็น MenuModel
-                      final menus = snapshot.data?.docs.map((doc) => MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList() ?? [];
+                      // 🌟 ดักกรองเมนูที่ถูกลบไปแล้วออกจากการแนะนำ
+                      final menus = snapshot.data?.docs.where((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        final status = data['status']?.toString().toLowerCase() ?? 'published';
+                        return status != 'deleted';
+                      }).map((doc) => MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList() ?? [];
 
-                      // 🧠 ระบบให้คะแนนความเหมาะสม (Scoring System)
                       List<Map<String, dynamic>> recommendedMenus = [];
 
                       for (var menu in menus) {
                         int matchScore = 0;
                         int totalConditions = selectedDiseases.length + selectedGoals.length;
 
-                        // ตรวจสอบโรคประจำตัว
+                        // 🌟 เรียกใช้ระบบเทียบคำอัจฉริยะ (isSmartMatch) ที่เราสร้างขึ้น
                         for (var d in selectedDiseases) {
-                          if (menu.suitableForDisease.any((md) => md.contains(d))) matchScore++;
+                          if (menu.suitableForDisease.any((md) => isSmartMatch(md, d))) matchScore++;
                         }
-                        // ตรวจสอบเป้าหมาย
                         for (var g in selectedGoals) {
-                          if (menu.suitableForGoal.any((mg) => mg.contains(g))) matchScore++;
+                          if (menu.suitableForGoal.any((mg) => isSmartMatch(mg, g))) matchScore++;
                         }
 
-                        // ถ้ายิ่งคะแนนเยอะ แสดงว่าตรงกับที่ต้องการมาก (เก็บเฉพาะเมนูที่คะแนน > 0)
                         if (matchScore > 0) {
-                          // คำนวณเป็นเปอร์เซ็นต์ความเหมาะสม
                           int matchPercentage = ((matchScore / totalConditions) * 100).toInt();
                           recommendedMenus.add({
                             'menu': menu,
                             'score': matchScore,
-                            'percentage': matchPercentage > 100 ? 100 : matchPercentage, // ไม่ให้เกิน 100%
+                            'percentage': matchPercentage > 100 ? 100 : matchPercentage,
                           });
                         }
                       }
 
-                      // เรียงลำดับเมนูจากคะแนนมากไปน้อย (อันไหนตรงสุดให้อยู่บนสุด)
                       recommendedMenus.sort((a, b) => b['score'].compareTo(a['score']));
 
                       if (recommendedMenus.isEmpty) {
@@ -195,7 +207,6 @@ class _RecommendPageState extends State<RecommendPage> {
                                               : Container(color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 50)),
                                         ),
                                       ),
-                                      // ป้ายกำกับ % ความเหมาะสม
                                       Positioned(
                                         top: 12, right: 12,
                                         child: Container(

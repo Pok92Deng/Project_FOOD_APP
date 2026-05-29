@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'menu_model.dart';
-import 'review_section.dart';
-import 'chat_page.dart';
+import 'chat_room_page.dart';
 
 class MenuDetailPage extends StatefulWidget {
   final MenuModel menu;
@@ -18,10 +17,61 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
   bool isFavorite = false;
   String? favoriteDocId;
 
+  int _selectedRating = 5; 
+  final TextEditingController _commentController = TextEditingController();
+  bool _isSubmittingReview = false;
+
   @override
   void initState() {
     super.initState();
     checkFavorite();
+  }
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  // 🌟 ฟังก์ชันสร้างและเปิดห้องแชท (เวอร์ชันซ่อมข้อมูลเก่า)
+  Future<void> _startChat(BuildContext context, String ownerEmail) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || currentUser.email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนทักแชท')));
+      return;
+    }
+    
+    final myEmail = currentUser.email!;
+    if (myEmail == ownerEmail) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('คุณไม่สามารถทักแชทตัวเองได้')));
+      return;
+    }
+
+    final chatId1 = '${myEmail}_$ownerEmail';
+    final chatId2 = '${ownerEmail}_$myEmail';
+
+    final doc1 = await FirebaseFirestore.instance.collection('chats').doc(chatId1).get();
+    final doc2 = await FirebaseFirestore.instance.collection('chats').doc(chatId2).get();
+
+    String targetChatId;
+    if (doc1.exists) {
+      targetChatId = chatId1;
+    } else if (doc2.exists) {
+      targetChatId = chatId2;
+    } else {
+      targetChatId = chatId1;
+    }
+
+    // 🌟 พระเอกอยู่ตรงนี้: SetOptions(merge: true) จะช่วยซ่อมประวัติแชทเก่าที่แหว่งให้กลับมาสมบูรณ์
+    await FirebaseFirestore.instance.collection('chats').doc(targetChatId).set({
+      'participants': [myEmail, ownerEmail],
+    }, SetOptions(merge: true));
+
+    if (!context.mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (context) => ChatRoomPage(
+      chatId: targetChatId,
+      receiverEmail: ownerEmail,
+    )));
   }
 
   Future<void> checkFavorite() async {
@@ -59,7 +109,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
     }
   }
 
-  // 🌟 เพิ่มฟังก์ชันสำหรับแชร์ลงหน้าชุมชน
   Future<void> _shareToCommunity() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -107,17 +156,16 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                   onPressed: isSharing ? null : () async {
                     setStateDialog(() => isSharing = true);
                     try {
-                      // บันทึกโพสต์ลง Firestore Collection 'community_posts'
                       await FirebaseFirestore.instance.collection('community_posts').add({
                         'menuId': widget.menu.id,
                         'userId': user.uid,
                         'userEmail': user.email ?? 'ไม่ระบุตัวตน',
                         'caption': captionController.text.trim(),
-                        'likes': [], // เริ่มต้นไม่มีคนไลก์
+                        'likes': [], 
                         'createdAt': Timestamp.now(),
                       });
                       if (!mounted) return;
-                      Navigator.pop(dialogContext); // ปิดหน้าต่าง Popup
+                      Navigator.pop(dialogContext); 
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('แชร์เมนูลงชุมชนสำเร็จ!'), backgroundColor: Colors.green),
                       );
@@ -136,6 +184,42 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
         );
       },
     );
+  }
+
+  Future<void> _submitReview() async {
+    final comment = _commentController.text.trim();
+    if (comment.isEmpty) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนรีวิว')));
+      return;
+    }
+
+    setState(() => _isSubmittingReview = true);
+
+    try {
+      await FirebaseFirestore.instance.collection('reviews').add({
+        'menuId': widget.menu.id,
+        'userId': user.uid,
+        'userEmail': user.email ?? 'ไม่ระบุ',
+        'rating': _selectedRating,
+        'comment': comment,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      _commentController.clear();
+      setState(() {
+        _selectedRating = 5;
+        _isSubmittingReview = false;
+      });
+      FocusScope.of(context).unfocus();
+
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ส่งรีวิวสำเร็จ!'), backgroundColor: Colors.green));
+    } catch (e) {
+      setState(() => _isSubmittingReview = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
+    }
   }
 
   Widget buildSectionTitle(String title) {
@@ -183,7 +267,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
         foregroundColor: Colors.black,
         elevation: 0,
         actions: [
-          // 🌟 เพิ่มปุ่มแชร์ไว้ตรงนี้ (ข้างๆ ปุ่มหัวใจ)
           IconButton(
             onPressed: _shareToCommunity,
             icon: const Icon(Icons.ios_share, color: Colors.blue),
@@ -203,6 +286,7 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                 ? Image.network(menu.imageUrl, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 80)))
                 : Container(color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 80)),
           ),
+          
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -216,9 +300,7 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                     
                     if (currentUserEmail != null && currentUserEmail != menu.authorEmail)
                       ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => ChatPage(targetEmail: menu.authorEmail)));
-                        },
+                        onPressed: () => _startChat(context, menu.authorEmail),
                         icon: const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.white),
                         label: const Text('ทักแชท', style: TextStyle(color: Colors.white)),
                         style: ElevatedButton.styleFrom(
@@ -265,8 +347,148 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                   ),
                 )),
                 
+                const Divider(height: 40, thickness: 1),
+
+                buildSectionTitle('รีวิวและความคิดเห็น'),
+                
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('ให้คะแนนเมนูนี้:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Row(
+                        children: List.generate(5, (index) {
+                          return IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            icon: Icon(
+                              index < _selectedRating ? Icons.star : Icons.star_border,
+                              color: Colors.amber,
+                              size: 28,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _selectedRating = index + 1;
+                              });
+                            },
+                          );
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _commentController,
+                              decoration: InputDecoration(
+                                hintText: 'เขียนรีวิวของคุณ...',
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          CircleAvatar(
+                            backgroundColor: Colors.blue,
+                            child: _isSubmittingReview 
+                              ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : IconButton(
+                                  icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                                  onPressed: _submitReview,
+                                ),
+                          )
+                        ],
+                      )
+                    ],
+                  ),
+                ),
+                
                 const SizedBox(height: 20),
-                ReviewSection(menuId: menu.id),
+
+                StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('reviews')
+                      .where('menuId', isEqualTo: widget.menu.id)
+                      .snapshots(), 
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) return const Text('เกิดข้อผิดพลาดในการโหลดรีวิว');
+                    if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+
+                    var docs = snapshot.data?.docs ?? [];
+                    
+                    docs.sort((a, b) {
+                      final timeA = (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                      final timeB = (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                      if (timeA == null || timeB == null) return 0;
+                      return timeB.compareTo(timeA);
+                    });
+
+                    if (docs.isEmpty) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        child: Center(
+                          child: Text('ยังไม่มีรีวิว เป็นคนแรกที่รีวิวสิ!', style: TextStyle(color: Colors.grey.shade500)),
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      shrinkWrap: true, 
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: docs.length,
+                      itemBuilder: (context, index) {
+                        final data = docs[index].data() as Map<String, dynamic>;
+                        final rating = data['rating'] ?? 5;
+                        final comment = data['comment'] ?? '';
+                        final email = data['userEmail'] ?? 'User';
+                        final username = email.split('@')[0];
+
+                        final Timestamp? t = data['createdAt'];
+                        final dateStr = t != null 
+                            ? '${t.toDate().day}/${t.toDate().month}/${t.toDate().year + 543}' 
+                            : 'เมื่อกี้';
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(username, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  Text(dateStr, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: List.generate(5, (i) => Icon(
+                                  i < rating ? Icons.star : Icons.star_border,
+                                  size: 16, color: Colors.amber,
+                                )),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(comment, style: const TextStyle(color: Colors.black87)),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ],
             ),
           ),

@@ -11,6 +11,7 @@ import 'favorite_page.dart';
 import 'search_page.dart';
 import 'community_page.dart';
 import 'trending_posts_page.dart';
+import 'chat_list_page.dart'; // 🌟 Import หน้าแชทเข้ามาแล้ว
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -47,6 +48,13 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.local_fire_department, color: Colors.orange),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const TrendingPostsPage())),
           ),
+          
+          // 🌟 ปุ่มกล่องข้อความ (Inbox) วางไว้ข้างๆ ปุ่มไฟ
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline, color: Colors.blue),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ChatListPage())),
+          ),
+
           IconButton(
             icon: const Icon(Icons.bookmark),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritePage())),
@@ -95,7 +103,17 @@ class MenuListSection extends StatelessWidget {
         .collection('menus')
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => MenuModel.fromMap(doc.id, doc.data())).toList());
+        .map((snapshot) {
+          // ดึงข้อมูลดิบมากรองก่อนแปลงเป็น Model
+          return snapshot.docs.where((doc) {
+            final data = doc.data() as Map<String, dynamic>; 
+            final status = data['status']?.toString().toLowerCase() ?? 'published'; 
+            // ❌ เอาเฉพาะที่ไม่เท่ากับ deleted
+            return status != 'deleted'; 
+          }).map((doc) {
+            return MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>);
+          }).toList();
+        });
   }
 
   @override
@@ -118,7 +136,6 @@ class MenuListSection extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  // แก้ไขตรงนี้ให้ส่ง menu ไปอย่างถูกต้อง
                   MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)),
                 );
               },

@@ -40,7 +40,12 @@ class _SearchPageState extends State<SearchPage> {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           if (snapshot.hasError) return const Center(child: Text('เกิดข้อผิดพลาด'));
 
-          final menus = snapshot.data?.docs.map((doc) => MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList() ?? [];
+          // 🌟 ดักกรองเมนูที่ถูกลบทิ้งไป
+          final menus = snapshot.data?.docs.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            final status = data['status']?.toString().toLowerCase() ?? 'published';
+            return status != 'deleted';
+          }).map((doc) => MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList() ?? [];
 
           final filteredMenus = menus.where((menu) {
             if (searchQuery.isEmpty) return true;
@@ -84,7 +89,6 @@ class _SearchPageState extends State<SearchPage> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      // แก้ไขตรงนี้ให้ส่ง menu ไปอย่างถูกต้อง
                       MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)),
                     );
                   },

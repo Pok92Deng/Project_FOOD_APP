@@ -13,10 +13,15 @@ class FavoritePage extends StatelessWidget {
       try {
         final doc = await FirebaseFirestore.instance.collection('menus').doc(id).get();
         if (doc.exists && doc.data() != null) {
-          loadedMenus.add(MenuModel.fromMap(doc.id, doc.data()!));
+          final data = doc.data()!;
+          // 🌟 เช็คว่าสถานะต้องไม่ใช่ deleted
+          final status = data['status']?.toString().toLowerCase() ?? 'published';
+          if (status != 'deleted') {
+            loadedMenus.add(MenuModel.fromMap(doc.id, data));
+          }
         }
       } catch (e) {
-        // ข้ามเมนูที่ถูกลบไปแล้ว
+        // ข้ามเมนูที่ถูกลบไปแล้วหรือเกิด Error
       }
     }
     return loadedMenus;
@@ -78,7 +83,6 @@ class FavoritePage extends StatelessWidget {
                       onTap: () {
                         Navigator.push(
                           context,
-                          // แก้ไขตรงนี้ให้ส่ง menu ไปอย่างถูกต้อง
                           MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)),
                         );
                       },
