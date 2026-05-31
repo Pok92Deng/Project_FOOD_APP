@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'menu_model.dart';
 import 'menu_detail_page.dart';
 import 'edit_menu_page.dart';
-import 'edit_profile_page.dart'; // 🌟 เปลี่ยนมาดึงหน้า EditProfilePage แทน
+import 'edit_profile_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -14,7 +14,6 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  // 🌟 ฟังก์ชันลบเมนู
   Future<void> _deleteMenu(String menuId) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -77,12 +76,18 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       body: Column(
         children: [
-          // 🌟 ส่วนดึงข้อมูลโปรไฟล์จากตาราง 'users'
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
             builder: (context, snapshot) {
               final userData = snapshot.data?.data() as Map<String, dynamic>?;
               final displayName = userData?['displayName'] ?? user?.email?.split('@')[0] ?? 'User';
+              
+              // 🌟 ดึงข้อมูลสุขภาพทั้งหมด
+              final age = userData?['age']?.toString() ?? '-';
+              final weight = userData?['weight']?.toString() ?? '-';
+              final height = userData?['height']?.toString() ?? '-';
+              final disease = userData?['disease']?.toString() ?? 'ไม่มี';
+              final goal = userData?['goal']?.toString() ?? 'ไม่ระบุ';
 
               return Container(
                 width: double.infinity,
@@ -90,6 +95,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
                 ),
                 child: Column(
                   children: [
@@ -105,26 +111,37 @@ class _ProfilePageState extends State<ProfilePage> {
                     Text(displayName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     Text(user?.email ?? '', style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
                     
-                    const SizedBox(height: 10),
-                    // โชว์ข้อมูลเพิ่มเติม
-                    Text('โรคประจำตัว: ${userData?['disease'] ?? 'ไม่มี'} | นน: ${userData?['weight'] ?? 0} กก.', 
-                         style: const TextStyle(fontSize: 12, color: Colors.green)),
-                         
-                    const SizedBox(height: 15),
+                    const SizedBox(height: 16),
                     
-                    // 🌟 ปุ่มกดเปิดหน้า EditProfilePage
+                    // 🌟 แสดงข้อมูลร่างกาย (บรรทัดแรก)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text('อายุ: $age ปี | ส่วนสูง: $height ซม. | นน: $weight กก.', 
+                           style: TextStyle(fontSize: 14, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                    ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // 🌟 แสดงเป้าหมายและโรคประจำตัว (บรรทัดสอง)
+                    Text('🩺 โรคประจำตัว: $disease', style: const TextStyle(fontSize: 13, color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text('🎯 เป้าหมาย: $goal', style: TextStyle(fontSize: 13, color: Colors.orange.shade800, fontWeight: FontWeight.bold)),
+                         
+                    const SizedBox(height: 16),
+                    
                     OutlinedButton.icon(
                       icon: const Icon(Icons.edit, size: 18),
                       label: const Text('จัดการข้อมูลส่วนตัว'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.green.shade700,
                         side: BorderSide(color: Colors.green.shade700),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       ),
                       onPressed: () {
-                        // 🌟 วิ่งไปที่หน้ากรอกข้อมูลที่เราเพิ่งสร้าง
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => const EditProfilePage()),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class EditProfilePage extends StatefulWidget {
   const EditProfilePage({super.key});
@@ -11,206 +11,231 @@ class EditProfilePage extends StatefulWidget {
 
 class _EditProfilePageState extends State<EditProfilePage> {
   final _formKey = GlobalKey<FormState>();
-  final nameController = TextEditingController();
-  final weightController = TextEditingController();
-  final heightController = TextEditingController();
-  final diseaseController = TextEditingController();
-  final bioController = TextEditingController();
-
-  bool isLoading = true;
+  
+  final _displayNameController = TextEditingController();
+  final _ageController = TextEditingController(); 
+  final _weightController = TextEditingController(); 
+  final _heightController = TextEditingController(); // 🌟 เพิ่มตัวรับค่าส่วนสูง
+  final _diseaseController = TextEditingController(); 
+  
+  // 🌟 เพิ่มตัวเลือกเป้าหมายสุขภาพ
+  final List<String> _goalOptions = ['ไม่ระบุ', 'ลดน้ำหนัก', 'เพิ่มกล้ามเนื้อ', 'รักษาสุขภาพ', 'อาหารคลีน', 'คีโต', 'มังสวิรัติ'];
+  String _selectedGoal = 'ไม่ระบุ';
+  
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentData();
+    _loadUserData();
   }
 
-  // 🌟 ดึงข้อมูลเดิมมาแสดงในช่องกรอก
-  Future<void> _loadCurrentData() async {
+  Future<void> _loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
         setState(() {
-          nameController.text = data['displayName'] ?? '';
-          weightController.text = (data['weight'] ?? 0).toString();
-          heightController.text = (data['height'] ?? 0).toString();
-          diseaseController.text = data['disease'] ?? 'ไม่มี';
-          bioController.text = data['bio'] ?? '';
-          isLoading = false;
+          _displayNameController.text = data['displayName'] ?? '';
+          _ageController.text = data['age']?.toString() ?? ''; 
+          _weightController.text = data['weight']?.toString() ?? ''; 
+          _heightController.text = data['height']?.toString() ?? ''; 
+          _diseaseController.text = data['disease'] ?? ''; 
+          
+          // เช็คว่าเป้าหมายที่มีอยู่ในฐานข้อมูล ตรงกับตัวเลือกในลิสต์หรือไม่
+          if (data['goal'] != null && _goalOptions.contains(data['goal'])) {
+            _selectedGoal = data['goal'];
+          }
         });
       }
     }
   }
 
-  // 🌟 บันทึกข้อมูลกลับเข้า Firestore
-  Future<void> _saveData() async {
+  Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-          'displayName': nameController.text.trim(),
-          'weight': double.tryParse(weightController.text.trim()) ?? 0,
-          'height': double.tryParse(heightController.text.trim()) ?? 0,
-          'disease': diseaseController.text.trim().isEmpty ? 'ไม่มี' : diseaseController.text.trim(),
-          'bio': bioController.text.trim(),
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('อัปเดตข้อมูลโปรไฟล์เรียบร้อย!')),
-          );
-          Navigator.pop(context); // บันทึกเสร็จให้เด้งกลับหน้าเดิม
-        }
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'displayName': _displayNameController.text.trim(),
+          'age': _ageController.text.trim(), 
+          'weight': _weightController.text.trim(),
+          'height': _heightController.text.trim(), // 🌟 บันทึกส่วนสูง
+          'disease': _diseaseController.text.trim(),
+          'goal': _selectedGoal, // 🌟 บันทึกเป้าหมาย
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('บันทึกข้อมูลโปรไฟล์สำเร็จ! ✅'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context); 
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('เกิดข้อผิดพลาด: $e'), backgroundColor: Colors.red),
+      );
     } finally {
-      if (mounted) {
-        setState(() {
-          isLoading = false;
-        });
-      }
+      setState(() => _isLoading = false);
     }
   }
 
   @override
   void dispose() {
-    nameController.dispose();
-    weightController.dispose();
-    heightController.dispose();
-    diseaseController.dispose();
-    bioController.dispose();
+    _displayNameController.dispose();
+    _ageController.dispose();
+    _weightController.dispose();
+    _heightController.dispose();
+    _diseaseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('แก้ไขข้อมูลส่วนตัว', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('จัดการข้อมูลส่วนตัว', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    // ฟอร์มกรอกชื่อ
-                    TextFormField(
-                      controller: nameController,
-                      decoration: InputDecoration(
-                        labelText: 'ชื่อแสดงผล',
-                        prefixIcon: const Icon(Icons.person),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                      ),
-                      validator: (value) => value!.isEmpty ? 'กรุณากรอกชื่อ' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // ฟอร์มกรอกน้ำหนักและส่วนสูง (แสดงแนวนอน)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: weightController,
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: 'น้ำหนัก (กก.)',
-                              prefixIcon: const Icon(Icons.monitor_weight),
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: heightController,
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: 'ส่วนสูง (ซม.)',
-                              prefixIcon: const Icon(Icons.height),
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // ฟอร์มกรอกโรคประจำตัว
-                    TextFormField(
-                      controller: diseaseController,
-                      decoration: InputDecoration(
-                        labelText: 'โรคประจำตัว (ถ้าไม่มีให้ใส่คำว่า "ไม่มี")',
-                        prefixIcon: const Icon(Icons.medical_services),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // ฟอร์มกรอกประวัติย่อ
-                    TextFormField(
-                      controller: bioController,
-                      maxLines: 3,
-                      decoration: InputDecoration(
-                        labelText: 'คำแนะนำตัว (Bio)',
-                        prefixIcon: const Padding(
-                          padding: EdgeInsets.only(bottom: 30),
-                          child: Icon(Icons.description),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // ปุ่มบันทึก
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: isLoading ? null : _saveData,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.shade600,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        child: const Text('บันทึกข้อมูล', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('ข้อมูลบัญชีผู้ใช้', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              
+              TextFormField(
+                controller: _displayNameController,
+                decoration: InputDecoration(
+                  labelText: 'ชื่อผู้ใช้ (Display Name)',
+                  prefixIcon: const Icon(Icons.person),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+                validator: (value) => value!.isEmpty ? 'กรุณากรอกชื่อ' : null,
+              ),
+              
+              const SizedBox(height: 32),
+              const Text('ข้อมูลสำหรับประเมินสุขภาพ 🩺', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              
+              // 🌟 อายุ
+              TextFormField(
+                controller: _ageController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'อายุ (ปี)',
+                  prefixIcon: const Icon(Icons.cake),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
                 ),
               ),
-            ),
+              const SizedBox(height: 16),
+              
+              // 🌟 น้ำหนัก และ ส่วนสูง ให้อยู่คู่กัน
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _weightController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'น้ำหนัก (กก.)',
+                        prefixIcon: const Icon(Icons.monitor_weight),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _heightController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'ส่วนสูง (ซม.)',
+                        prefixIcon: const Icon(Icons.height),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // 🌟 โรคประจำตัว
+              TextFormField(
+                controller: _diseaseController,
+                decoration: InputDecoration(
+                  labelText: 'โรคประจำตัว / อาการแพ้ (ถ้ามี)',
+                  prefixIcon: const Icon(Icons.medical_information),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  hintText: 'เช่น ความดัน, เบาหวาน, แพ้ถั่ว',
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // 🌟 เป้าหมายสุขภาพ (Dropdown)
+              DropdownButtonFormField<String>(
+                value: _selectedGoal,
+                decoration: InputDecoration(
+                  labelText: 'เป้าหมายสุขภาพ',
+                  prefixIcon: const Icon(Icons.flag),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+                items: _goalOptions.map((String goal) {
+                  return DropdownMenuItem<String>(
+                    value: goal,
+                    child: Text(goal),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      _selectedGoal = newValue;
+                    });
+                  }
+                },
+              ),
+              
+              const SizedBox(height: 32),
+              
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _saveProfile,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isLoading 
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('บันทึกข้อมูล', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
