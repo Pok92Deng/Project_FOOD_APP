@@ -19,46 +19,84 @@ class TrendingPostsPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text('โพสต์ยอดฮิต 🔥', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('เมนูยอดฮิต 🔥', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
       ),
+      
+      // 🌟 ใช้ StreamBuilder ดึงทั้ง โพสต์ และ เมนู มาประมวลผลพร้อมกัน
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('community_posts').snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        builder: (context, postSnapshot) {
+          if (postSnapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
           
-          final docs = snapshot.data?.docs ?? [];
-          if (docs.isEmpty) return const Center(child: Text('ยังไม่มีโพสต์ให้จัดอันดับ'));
+          final postsDocs = postSnapshot.data?.docs ?? [];
+          if (postsDocs.isEmpty) return const Center(child: Text('ยังไม่มีการแชร์เมนูในชุมชน'));
 
-          // 1. นำข้อมูลมานับยอด Like และจัดเรียง
-          List<Map<String, dynamic>> trendingList = docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            final List<dynamic> likes = data['likes'] ?? [];
-            return {'id': doc.id, 'likeCount': likes.length, ...data};
-          }).toList();
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('menus').snapshots(),
+            builder: (context, menuSnapshot) {
+              if (menuSnapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
 
-          trendingList.sort((a, b) => b['likeCount'].compareTo(a['likeCount']));
-          // กรองเอาเฉพาะที่มีคน Like (ถ้าต้องการ)
-          trendingList = trendingList.where((item) => item['likeCount'] > 0).toList();
+              final menusDocs = menuSnapshot.data?.docs ?? [];
+              
+              // 🌟 1. จัดกลุ่มโพสต์ตามเมนู (Group by Menu) และ "รวมยอด Like"
+              Map<String, Map<String, dynamic>> groupedMenus = {};
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: trendingList.length,
-            itemBuilder: (context, index) {
-              final post = trendingList[index];
-              final String menuId = post['menuId'] ?? '';
-              final String username = (post['userEmail'] ?? 'User').toString().split('@')[0];
+              for (var postDoc in postsDocs) {
+                final postData = postDoc.data() as Map<String, dynamic>;
+                final String menuId = postData['menuId']?.toString() ?? '';
+                final List<dynamic> likes = postData['likes'] ?? [];
+                
+                if (menuId.isEmpty) continue;
 
-              // 🌟 ใช้ FutureBuilder เพื่อไปดึงรูปภาพและข้อมูลจาก Collection 'menus'
-              return FutureBuilder<DocumentSnapshot>(
-                future: FirebaseFirestore.instance.collection('menus').doc(menuId).get(),
-                builder: (context, menuSnapshot) {
-                  if (!menuSnapshot.hasData || !menuSnapshot.data!.exists) return const SizedBox();
+                if (groupedMenus.containsKey(menuId)) {
+                  // ถ้ามีเมนูนี้ในกลุ่มแล้ว ให้ "บวก" ยอด Like เพิ่มเข้าไป
+                  groupedMenus[menuId]!['totalLikes'] += likes.length;
+                } else {
+                  // ถ้ายังไม่มี ให้สร้างรายการใหม่ (เก็บชื่อคนโพสต์คนแรกไว้แสดงผล)
+                  groupedMenus[menuId] = {
+                    'menuId': menuId,
+                    'totalLikes': likes.length,
+                    'userEmail': postData['userEmail'] ?? 'User',
+                    'caption': postData['caption'] ?? '',
+                  };
+                }
+              }
 
-                  final menuData = menuSnapshot.data!.data() as Map<String, dynamic>;
-                  final menu = MenuModel.fromMap(menuSnapshot.data!.id, menuData);
+              // 🌟 2. ตรวจสอบว่าเมนูนั้นยังไม่ถูกแอดมินลบทิ้งไป
+              List<Map<String, dynamic>> validRanking = [];
+              for (var entry in groupedMenus.values) {
+                final menuId = entry['menuId'];
+                final menuExist = menusDocs.where((m) => m.id == menuId).toList();
+                
+                if (menuExist.isNotEmpty) {
+                  final menuData = menuExist.first.data() as Map<String, dynamic>;
+                  entry['menuData'] = menuData; // เอาข้อมูลเมนูจริงมาแปะไว้เตรียมแสดงผล
+                  validRanking.add(entry);
+                }
+              }
+
+              // 🌟 3. เรียงลำดับตามยอด Like รวม (จากมากไปน้อย)
+              validRanking.sort((a, b) => b['totalLikes'].compareTo(a['totalLikes']));
+              
+              // กรองเอาเฉพาะอันที่มียอดไลก์มากกว่า 0
+              validRanking = validRanking.where((item) => item['totalLikes'] > 0).toList();
+
+              if (validRanking.isEmpty) return const Center(child: Text('ยังไม่มีเมนูที่ถูกใจ ให้อันดับ'));
+
+              // 🌟 4. วาด UI
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: validRanking.length,
+                itemBuilder: (context, index) {
+                  final item = validRanking[index];
+                  final String username = (item['userEmail']).toString().split('@')[0];
+                  final int totalLikes = item['totalLikes'];
+                  
+                  // สร้าง MenuModel
+                  final menu = MenuModel.fromMap(item['menuId'], item['menuData']);
 
                   return Card(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -70,7 +108,6 @@ class TrendingPostsPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 🖼 ส่วนแสดงรูปภาพขนาดใหญ่
                           Stack(
                             children: [
                               ClipRRect(
@@ -80,12 +117,10 @@ class TrendingPostsPage extends StatelessWidget {
                                   height: 180,
                                   width: double.infinity,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (c, e, s) => Container(height: 180, color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 50)),
+                                  errorBuilder: (c, e, s) => Container(height: 180, width: double.infinity, color: Colors.grey.shade200, child: const Icon(Icons.fastfood, size: 50, color: Colors.grey)),
                                 ),
                               ),
-                              // ป้ายอันดับ
                               Positioned(top: 12, left: 12, child: _buildRankBadge(index)),
-                              // ป้ายยอด Like
                               Positioned(
                                 top: 12, right: 12,
                                 child: Container(
@@ -95,14 +130,13 @@ class TrendingPostsPage extends StatelessWidget {
                                     children: [
                                       const Icon(Icons.favorite, color: Colors.red, size: 16),
                                       const SizedBox(width: 4),
-                                      Text('${post['likeCount']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      Text('$totalLikes', style: const TextStyle(fontWeight: FontWeight.bold)),
                                     ],
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                          // ข้อมูลรายละเอียด
                           Padding(
                             padding: const EdgeInsets.all(16),
                             child: Column(
@@ -110,9 +144,9 @@ class TrendingPostsPage extends StatelessWidget {
                               children: [
                                 Text(menu.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 4),
-                                Text('โดย: $username', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                                Text('นำเทรนด์โดย: $username', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                                 const SizedBox(height: 8),
-                                Text(post['caption'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black54)),
+                                Text(item['caption'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black54)),
                               ],
                             ),
                           ),

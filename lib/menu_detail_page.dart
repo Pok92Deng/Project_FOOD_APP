@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'menu_model.dart';
-import 'chat_room_page.dart';
+import 'chat_room_page.dart'; // หากคุณใช้หน้าแชทชื่ออื่น อย่าลืมเปลี่ยนชื่อไฟล์ตรงนี้นะครับ
 
 class MenuDetailPage extends StatefulWidget {
   final MenuModel menu;
@@ -21,10 +21,16 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
   final TextEditingController _commentController = TextEditingController();
   bool _isSubmittingReview = false;
 
+  // 🌟 ตัวแปรสำหรับเก็บข้อมูลแจ้งเตือนสุขภาพ
+  bool _isLoadingHealthCheck = true;
+  List<String> _healthWarnings = [];
+  String _userDiseaseName = '';
+
   @override
   void initState() {
     super.initState();
     checkFavorite();
+    _checkHealthSafety(); // 🌟 เรียกใช้ฟังก์ชันตรวจสอบสุขภาพตอนเปิดหน้า
   }
 
   @override
@@ -33,7 +39,89 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
     super.dispose();
   }
 
-  // 🌟 ฟังก์ชันสร้างและเปิดห้องแชท (เวอร์ชันซ่อมข้อมูลเก่า)
+  // 🌟 ฟังก์ชันอัจฉริยะ ตรวจสอบความปลอดภัยของเมนูอาหารกับโรคผู้ใช้
+  Future<void> _checkHealthSafety() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _isLoadingHealthCheck = false);
+      return;
+    }
+
+    try {
+      // 1. ดึงข้อมูลโปรไฟล์ผู้ใช้เพื่อดูว่าป่วยเป็นโรคอะไร
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (!userDoc.exists) {
+        if (mounted) setState(() => _isLoadingHealthCheck = false);
+        return;
+      }
+
+      final userData = userDoc.data()!;
+      final userDisease = userData['disease']?.toString() ?? userData['healthCondition']?.toString() ?? '';
+
+      if (userDisease.isEmpty || userDisease == 'ไม่มี') {
+        if (mounted) setState(() => _isLoadingHealthCheck = false);
+        return; // สุขภาพแข็งแรงดี ไม่ต้องเตือน
+      }
+
+      // 2. ไปดึงกฎของโรค (Rules) จากตาราง diseases ที่แอดมินตั้งไว้
+      final diseasesSnap = await FirebaseFirestore.instance.collection('diseases').get();
+      Map<String, dynamic>? targetRules;
+      String matchedDiseaseName = '';
+
+      for (var doc in diseasesSnap.docs) {
+        final diseaseName = doc['name'].toString();
+        
+        // จำลองระบบ Fuzzy Match (เทียบคำคล้าย) แบบเว็บแอดมิน
+        final cleanUserDisease = userDisease.replaceAll('โรค', '').trim().toLowerCase();
+        final cleanDbDisease = diseaseName.replaceAll('โรค', '').trim().toLowerCase();
+
+        if (cleanUserDisease.isNotEmpty && cleanDbDisease.isNotEmpty &&
+            (cleanUserDisease.contains(cleanDbDisease) || cleanDbDisease.contains(cleanUserDisease))) {
+          targetRules = doc['rules'] as Map<String, dynamic>?;
+          matchedDiseaseName = diseaseName;
+          break;
+        }
+      }
+
+      // 3. เทียบโภชนาการเมนู กับ กฎของโรค
+      if (targetRules != null) {
+        List<String> warnings = [];
+        final menu = widget.menu;
+
+        if (targetRules['sodium'] != null && menu.sodium > targetRules['sodium']) {
+          warnings.add('⚠️ โซเดียมสูงเกินเกณฑ์ (${menu.sodium} / ${targetRules['sodium']} mg)');
+        }
+        if (targetRules['sugar'] != null && menu.carb > targetRules['sugar']) {
+          warnings.add('⚠️ คาร์บ/น้ำตาลสูงเกินเกณฑ์ (${menu.carb} / ${targetRules['sugar']} g)');
+        }
+        if (targetRules['fat'] != null && menu.fat > targetRules['fat']) {
+          warnings.add('⚠️ ไขมันสูงเกินเกณฑ์ (${menu.fat} / ${targetRules['fat']} g)');
+        }
+        if (targetRules['protein'] != null && menu.protein > targetRules['protein']) {
+          warnings.add('⚠️ โปรตีนสูงเกินเกณฑ์ (${menu.protein} / ${targetRules['protein']} g)');
+        }
+        if (targetRules['calories'] != null && menu.calories > targetRules['calories']) {
+          warnings.add('⚠️ พลังงานสูงเกินเกณฑ์ (${menu.calories} / ${targetRules['calories']} kcal)');
+        }
+
+        if (warnings.isNotEmpty) {
+          if (mounted) {
+            setState(() {
+              _healthWarnings = warnings;
+              _userDiseaseName = matchedDiseaseName;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print("Error checking health safety: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingHealthCheck = false);
+      }
+    }
+  }
+
   Future<void> _startChat(BuildContext context, String ownerEmail) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null || currentUser.email == null) {
@@ -62,7 +150,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
       targetChatId = chatId1;
     }
 
-    // 🌟 พระเอกอยู่ตรงนี้: SetOptions(merge: true) จะช่วยซ่อมประวัติแชทเก่าที่แหว่งให้กลับมาสมบูรณ์
     await FirebaseFirestore.instance.collection('chats').doc(targetChatId).set({
       'participants': [myEmail, ownerEmail],
     }, SetOptions(merge: true));
@@ -111,10 +198,7 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
 
   Future<void> _shareToCommunity() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาเข้าสู่ระบบเพื่อแชร์เมนู')));
-      return;
-    }
+    if (user == null) return;
 
     final TextEditingController captionController = TextEditingController();
     bool isSharing = false;
@@ -126,13 +210,7 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
           builder: (context, setStateDialog) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: const Row(
-                children: [
-                  Icon(Icons.share, color: Colors.blue),
-                  SizedBox(width: 8),
-                  Text('แชร์ลงชุมชน', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                ],
-              ),
+              title: const Text('แชร์ลงชุมชน', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               content: TextField(
                 controller: captionController,
                 decoration: InputDecoration(
@@ -149,10 +227,7 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                   child: const Text('ยกเลิก', style: TextStyle(color: Colors.grey)),
                 ),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                   onPressed: isSharing ? null : () async {
                     setStateDialog(() => isSharing = true);
                     try {
@@ -166,17 +241,12 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                       });
                       if (!mounted) return;
                       Navigator.pop(dialogContext); 
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('แชร์เมนูลงชุมชนสำเร็จ!'), backgroundColor: Colors.green),
-                      );
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('แชร์เมนูสำเร็จ!'), backgroundColor: Colors.green));
                     } catch (e) {
                       setStateDialog(() => isSharing = false);
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
                     }
                   },
-                  child: isSharing
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('แชร์เลย', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: isSharing ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('แชร์เลย', style: TextStyle(color: Colors.white)),
                 ),
               ],
             );
@@ -191,10 +261,7 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
     if (comment.isEmpty) return;
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาเข้าสู่ระบบก่อนรีวิว')));
-      return;
-    }
+    if (user == null) return;
 
     setState(() => _isSubmittingReview = true);
 
@@ -214,11 +281,9 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
         _isSubmittingReview = false;
       });
       FocusScope.of(context).unfocus();
-
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ส่งรีวิวสำเร็จ!'), backgroundColor: Colors.green));
     } catch (e) {
       setState(() => _isSubmittingReview = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e')));
     }
   }
 
@@ -318,11 +383,83 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                 const SizedBox(height: 12),
                 
                 Text(menu.description, style: const TextStyle(fontSize: 15, color: Colors.black54, height: 1.5)),
-                const Divider(height: 40),
+                
+                // ==========================================
+                // 🌟 กล่องแจ้งเตือนสุขภาพ (แสดงเฉพาะเมื่อมีความเสี่ยง)
+                // ==========================================
+                if (_isLoadingHealthCheck)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+
+                if (!_isLoadingHealthCheck && _healthWarnings.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 20),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      border: Border.all(color: Colors.red.shade200),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(color: Colors.red.shade100, blurRadius: 10, offset: const Offset(0, 4))
+                      ]
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.warning_rounded, color: Colors.red.shade800, size: 28),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'แจ้งเตือนผู้ป่วย $_userDiseaseName',
+                                style: TextStyle(color: Colors.red.shade900, fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Divider(color: Colors.white, thickness: 1.5),
+                        ),
+                        Text(
+                          'เมนูนี้มีสารอาหารบางอย่างที่เกินเกณฑ์ควบคุมของคุณ:',
+                          style: TextStyle(color: Colors.red.shade900, fontSize: 14),
+                        ),
+                        const SizedBox(height: 8),
+                        ..._healthWarnings.map((warn) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(warn, style: TextStyle(color: Colors.red.shade700, fontSize: 14, fontWeight: FontWeight.w600)),
+                        )),
+                      ],
+                    ),
+                  ),
+                
+                if (!_isLoadingHealthCheck && _healthWarnings.isEmpty && _userDiseaseName.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 20),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.green.shade200)),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.check_circle, color: Colors.green),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text('เมนูนี้อยู่ในเกณฑ์ปลอดภัยสำหรับผู้ป่วย $_userDiseaseName ครับ 🥗', style: const TextStyle(color: Colors.green))),
+                      ],
+                    ),
+                  ),
+                // ==========================================
+
+                const Divider(height: 20),
                 
                 buildSectionTitle('ข้อมูลโภชนาการ'),
                 buildInfoCard(title: 'พลังงาน', value: '${menu.calories} kcal', icon: Icons.local_fire_department, color: Colors.orange),
                 buildInfoCard(title: 'โปรตีน', value: '${menu.protein} g', icon: Icons.fitness_center, color: Colors.blue),
+                buildInfoCard(title: 'คาร์บ', value: '${menu.carb} g', icon: Icons.rice_bowl, color: Colors.brown),
+                buildInfoCard(title: 'ไขมัน', value: '${menu.fat} g', icon: Icons.opacity, color: Colors.amber.shade700),
+                buildInfoCard(title: 'โซเดียม', value: '${menu.sodium} mg', icon: Icons.science, color: Colors.grey.shade600),
                 
                 buildSectionTitle('ส่วนผสมและวัตถุดิบ'),
                 ...menu.ingredients.map((item) => Padding(
