@@ -13,12 +13,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
   final _formKey = GlobalKey<FormState>();
   
   final _displayNameController = TextEditingController();
-  final _ageController = TextEditingController(); 
+  final _birthDateController = TextEditingController(); // 🌟 เปลี่ยนเป็นตัวรับวันเกิด
   final _weightController = TextEditingController(); 
-  final _heightController = TextEditingController(); // 🌟 เพิ่มตัวรับค่าส่วนสูง
+  final _heightController = TextEditingController(); 
   final _diseaseController = TextEditingController(); 
   
-  // 🌟 เพิ่มตัวเลือกเป้าหมายสุขภาพ
+  DateTime? _selectedBirthDate; // 🌟 ตัวแปรเก็บค่าวันเกิดที่เลือกจากปฏิทิน
+
   final List<String> _goalOptions = ['ไม่ระบุ', 'ลดน้ำหนัก', 'เพิ่มกล้ามเนื้อ', 'รักษาสุขภาพ', 'อาหารคลีน', 'คีโต', 'มังสวิรัติ'];
   String _selectedGoal = 'ไม่ระบุ';
   
@@ -36,36 +37,89 @@ class _EditProfilePageState extends State<EditProfilePage> {
       final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
+
         setState(() {
           _displayNameController.text = data['displayName'] ?? '';
-          _ageController.text = data['age']?.toString() ?? ''; 
           _weightController.text = data['weight']?.toString() ?? ''; 
           _heightController.text = data['height']?.toString() ?? ''; 
           _diseaseController.text = data['disease'] ?? ''; 
           
-          // เช็คว่าเป้าหมายที่มีอยู่ในฐานข้อมูล ตรงกับตัวเลือกในลิสต์หรือไม่
           if (data['goal'] != null && _goalOptions.contains(data['goal'])) {
             _selectedGoal = data['goal'];
+          }
+
+          // 🌟 ดึงข้อมูลวันเกิดมาแสดง (ถ้ามี)
+          if (data.containsKey('birthDate') && data['birthDate'] != null) {
+            _selectedBirthDate = (data['birthDate'] as Timestamp).toDate();
+            _birthDateController.text = "${_selectedBirthDate!.day}/${_selectedBirthDate!.month}/${_selectedBirthDate!.year + 543}"; // โชว์เป็น พ.ศ.
+          } else if (data.containsKey('birthYear') && data['birthYear'] != null) {
+            // รองรับข้อมูลผู้ใช้เก่าที่เคยมีแค่ birthYear
+            _selectedBirthDate = DateTime(data['birthYear'], 1, 1);
+            _birthDateController.text = "1/1/${_selectedBirthDate!.year + 543}";
           }
         });
       }
     }
   }
 
+  // 🌟 ฟังก์ชันเปิดปฏิทินเลือกวันเกิด
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedBirthDate ?? DateTime(DateTime.now().year - 20), // ค่าเริ่มต้นย้อนไป 20 ปี
+      firstDate: DateTime(1900), // เลือกได้ย้อนหลังสุดถึงปี 1900
+      lastDate: DateTime.now(), // เลือกได้ถึงแค่วันนี้
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.green, // สีหัวปฏิทิน
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null && picked != _selectedBirthDate) {
+      setState(() {
+        _selectedBirthDate = picked;
+        _birthDateController.text = "${picked.day}/${picked.month}/${picked.year + 543}"; // อัปเดตช่องกรอกเป็น พ.ศ.
+      });
+    }
+  }
+
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedBirthDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาระบุวันเกิดด้วยครับ'), backgroundColor: Colors.red));
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        
+        // 🌟 คำนวณอายุเพื่อใช้เป็นข้อมูลอ้างอิงให้ระบบ (คำนวณเป๊ะระดับเดือนและวัน)
+        int currentYear = DateTime.now().year;
+        int age = currentYear - _selectedBirthDate!.year;
+        if (DateTime.now().month < _selectedBirthDate!.month || 
+           (DateTime.now().month == _selectedBirthDate!.month && DateTime.now().day < _selectedBirthDate!.day)) {
+          age--; // ถ้ายังไม่ถึงวันเกิดในปีนี้ ให้ลบอายุออก 1
+        }
+
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'displayName': _displayNameController.text.trim(),
-          'age': _ageController.text.trim(), 
+          'birthDate': Timestamp.fromDate(_selectedBirthDate!), // 🌟 บันทึกเป็นรูปแบบ Timestamp
+          'birthYear': _selectedBirthDate!.year, 
+          'age': age, 
           'weight': _weightController.text.trim(),
-          'height': _heightController.text.trim(), // 🌟 บันทึกส่วนสูง
+          'height': _heightController.text.trim(), 
           'disease': _diseaseController.text.trim(),
-          'goal': _selectedGoal, // 🌟 บันทึกเป้าหมาย
+          'goal': _selectedGoal, 
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
         
@@ -75,9 +129,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         Navigator.pop(context); 
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('เกิดข้อผิดพลาด: $e'), backgroundColor: Colors.red),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('เกิดข้อผิดพลาด: $e'), backgroundColor: Colors.red));
     } finally {
       setState(() => _isLoading = false);
     }
@@ -86,7 +138,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   void dispose() {
     _displayNameController.dispose();
-    _ageController.dispose();
+    _birthDateController.dispose();
     _weightController.dispose();
     _heightController.dispose();
     _diseaseController.dispose();
@@ -129,21 +181,24 @@ class _EditProfilePageState extends State<EditProfilePage> {
               const Text('ข้อมูลสำหรับประเมินสุขภาพ 🩺', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
               
-              // 🌟 อายุ
+              // 🌟 ช่องวันเกิด (กดแล้วมีปฏิทินเด้ง)
               TextFormField(
-                controller: _ageController,
-                keyboardType: TextInputType.number,
+                controller: _birthDateController,
+                readOnly: true, // ป้องกันการพิมพ์ตัวเลขมั่วๆ ต้องกดปฏิทินเท่านั้น
+                onTap: () => _selectDate(context),
                 decoration: InputDecoration(
-                  labelText: 'อายุ (ปี)',
-                  prefixIcon: const Icon(Icons.cake),
+                  labelText: 'วัน/เดือน/ปีเกิด',
+                  prefixIcon: const Icon(Icons.cake, color: Colors.pinkAccent),
+                  suffixIcon: const Icon(Icons.calendar_today, color: Colors.grey),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
                   fillColor: Colors.grey.shade50,
+                  hintText: 'เลือกวันเกิดของคุณ',
                 ),
+                validator: (value) => value!.isEmpty ? 'กรุณาเลือกวันเกิด' : null,
               ),
               const SizedBox(height: 16),
               
-              // 🌟 น้ำหนัก และ ส่วนสูง ให้อยู่คู่กัน
               Row(
                 children: [
                   Expanded(
@@ -177,7 +232,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
               ),
               const SizedBox(height: 16),
 
-              // 🌟 โรคประจำตัว
               TextFormField(
                 controller: _diseaseController,
                 decoration: InputDecoration(
@@ -191,7 +245,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
               ),
               const SizedBox(height: 16),
               
-              // 🌟 เป้าหมายสุขภาพ (Dropdown)
               DropdownButtonFormField<String>(
                 value: _selectedGoal,
                 decoration: InputDecoration(

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'menu_model.dart';
-import 'chat_room_page.dart'; // หากคุณใช้หน้าแชทชื่ออื่น อย่าลืมเปลี่ยนชื่อไฟล์ตรงนี้นะครับ
+import 'chat_room_page.dart';
 
 class MenuDetailPage extends StatefulWidget {
   final MenuModel menu;
@@ -21,7 +21,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
   final TextEditingController _commentController = TextEditingController();
   bool _isSubmittingReview = false;
 
-  // 🌟 ตัวแปรสำหรับเก็บข้อมูลแจ้งเตือนสุขภาพ
   bool _isLoadingHealthCheck = true;
   List<String> _healthWarnings = [];
   String _userDiseaseName = '';
@@ -30,7 +29,7 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
   void initState() {
     super.initState();
     checkFavorite();
-    _checkHealthSafety(); // 🌟 เรียกใช้ฟังก์ชันตรวจสอบสุขภาพตอนเปิดหน้า
+    _checkHealthSafety(); 
   }
 
   @override
@@ -39,7 +38,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
     super.dispose();
   }
 
-  // 🌟 ฟังก์ชันอัจฉริยะ ตรวจสอบความปลอดภัยของเมนูอาหารกับโรคผู้ใช้
   Future<void> _checkHealthSafety() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -48,7 +46,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
     }
 
     try {
-      // 1. ดึงข้อมูลโปรไฟล์ผู้ใช้เพื่อดูว่าป่วยเป็นโรคอะไร
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (!userDoc.exists) {
         if (mounted) setState(() => _isLoadingHealthCheck = false);
@@ -60,18 +57,15 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
 
       if (userDisease.isEmpty || userDisease == 'ไม่มี') {
         if (mounted) setState(() => _isLoadingHealthCheck = false);
-        return; // สุขภาพแข็งแรงดี ไม่ต้องเตือน
+        return; 
       }
 
-      // 2. ไปดึงกฎของโรค (Rules) จากตาราง diseases ที่แอดมินตั้งไว้
       final diseasesSnap = await FirebaseFirestore.instance.collection('diseases').get();
       Map<String, dynamic>? targetRules;
       String matchedDiseaseName = '';
 
       for (var doc in diseasesSnap.docs) {
         final diseaseName = doc['name'].toString();
-        
-        // จำลองระบบ Fuzzy Match (เทียบคำคล้าย) แบบเว็บแอดมิน
         final cleanUserDisease = userDisease.replaceAll('โรค', '').trim().toLowerCase();
         final cleanDbDisease = diseaseName.replaceAll('โรค', '').trim().toLowerCase();
 
@@ -83,7 +77,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
         }
       }
 
-      // 3. เทียบโภชนาการเมนู กับ กฎของโรค
       if (targetRules != null) {
         List<String> warnings = [];
         final menu = widget.menu;
@@ -294,26 +287,23 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
     );
   }
 
-  Widget buildInfoCard({required String title, required String value, required IconData icon, required Color color}) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(16)),
-      child: Row(
+  // 🌟 ฟังก์ชันวาดไอคอนโภชนาการแบบ Grid ภายในกล่อง
+  Widget _buildNutrientGridItem(IconData icon, Color color, String title, String value) {
+    return Expanded(
+      child: Column(
         children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(value.isEmpty ? '-' : value, style: const TextStyle(fontSize: 15)),
-              ],
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              shape: BoxShape.circle,
             ),
+            child: Icon(icon, color: color, size: 24),
           ),
+          const SizedBox(height: 8),
+          Text(title, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.3)),
         ],
       ),
     );
@@ -384,9 +374,6 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                 
                 Text(menu.description, style: const TextStyle(fontSize: 15, color: Colors.black54, height: 1.5)),
                 
-                // ==========================================
-                // 🌟 กล่องแจ้งเตือนสุขภาพ (แสดงเฉพาะเมื่อมีความเสี่ยง)
-                // ==========================================
                 if (_isLoadingHealthCheck)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 20),
@@ -450,16 +437,47 @@ class _MenuDetailPageState extends State<MenuDetailPage> {
                       ],
                     ),
                   ),
-                // ==========================================
 
                 const Divider(height: 20),
                 
                 buildSectionTitle('ข้อมูลโภชนาการ'),
-                buildInfoCard(title: 'พลังงาน', value: '${menu.calories} kcal', icon: Icons.local_fire_department, color: Colors.orange),
-                buildInfoCard(title: 'โปรตีน', value: '${menu.protein} g', icon: Icons.fitness_center, color: Colors.blue),
-                buildInfoCard(title: 'คาร์บ', value: '${menu.carb} g', icon: Icons.rice_bowl, color: Colors.brown),
-                buildInfoCard(title: 'ไขมัน', value: '${menu.fat} g', icon: Icons.opacity, color: Colors.amber.shade700),
-                buildInfoCard(title: 'โซเดียม', value: '${menu.sodium} mg', icon: Icons.science, color: Colors.grey.shade600),
+                
+                // 🌟 ปรับปรุงเป็นกล่องโภชนาการรวมแบบ Grid 🌟
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.grey.shade200),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildNutrientGridItem(Icons.local_fire_department, Colors.orange, 'พลังงาน', '${menu.calories}\nkcal'),
+                          _buildNutrientGridItem(Icons.fitness_center, Colors.blue, 'โปรตีน', '${menu.protein}\ng'),
+                          _buildNutrientGridItem(Icons.rice_bowl, Colors.brown, 'คาร์บ', '${menu.carb}\ng'),
+                        ],
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                        child: Divider(height: 1, color: Color(0xFFEEEEEE)),
+                      ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildNutrientGridItem(Icons.opacity, Colors.amber.shade700, 'ไขมัน', '${menu.fat}\ng'),
+                          _buildNutrientGridItem(Icons.science, Colors.grey.shade600, 'โซเดียม', '${menu.sodium}\nmg'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
                 
                 buildSectionTitle('ส่วนผสมและวัตถุดิบ'),
                 ...menu.ingredients.map((item) => Padding(

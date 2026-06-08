@@ -82,8 +82,32 @@ class _ProfilePageState extends State<ProfilePage> {
               final userData = snapshot.data?.data() as Map<String, dynamic>?;
               final displayName = userData?['displayName'] ?? user?.email?.split('@')[0] ?? 'User';
               
-              // 🌟 ดึงข้อมูลสุขภาพทั้งหมด
-              final age = userData?['age']?.toString() ?? '-';
+              // 🌟 โลจิกคำนวณวันเกิดและอายุที่แม่นยำที่สุด
+              String displayAge = '-';
+              String birthDateStr = '';
+              
+              if (userData != null) {
+                if (userData.containsKey('birthDate') && userData['birthDate'] != null) {
+                  DateTime bDate = (userData['birthDate'] as Timestamp).toDate();
+                  birthDateStr = "วันเกิด: ${bDate.day}/${bDate.month}/${bDate.year + 543}";
+                  
+                  int currentYear = DateTime.now().year;
+                  int age = currentYear - bDate.year;
+                  if (DateTime.now().month < bDate.month || 
+                     (DateTime.now().month == bDate.month && DateTime.now().day < bDate.day)) {
+                    age--; 
+                  }
+                  displayAge = age.toString();
+                } else if (userData.containsKey('birthYear') && userData['birthYear'] != null) {
+                  int currentYear = DateTime.now().year;
+                  int birthYear = userData['birthYear'] as int;
+                  displayAge = (currentYear - birthYear).toString();
+                } else {
+                  displayAge = userData['age']?.toString() ?? '-';
+                }
+              }
+
+              // ดึงข้อมูลสุขภาพทั้งหมด
               final weight = userData?['weight']?.toString() ?? '-';
               final height = userData?['height']?.toString() ?? '-';
               final disease = userData?['disease']?.toString() ?? 'ไม่มี';
@@ -109,28 +133,32 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                     const SizedBox(height: 16),
                     Text(displayName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    
+                    // 🌟 เพิ่มแสดงวันเกิดใต้ชื่ออีเมล
                     Text(user?.email ?? '', style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+                    if (birthDateStr.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(birthDateStr, style: TextStyle(fontSize: 13, color: Colors.pink.shade300, fontWeight: FontWeight.w600)),
+                      ),
                     
                     const SizedBox(height: 16),
                     
-                    // 🌟 แสดงข้อมูลร่างกาย (บรรทัดแรก)
+                    // 🌟 แสดงข้อมูลร่างกาย
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text('อายุ: $age ปี | ส่วนสูง: $height ซม. | นน: $weight กก.', 
+                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
+                      child: Text('อายุ: $displayAge ปี | ส่วนสูง: $height ซม. | นน: $weight กก.', 
                            style: TextStyle(fontSize: 14, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
                     ),
                     
                     const SizedBox(height: 8),
                     
-                    // 🌟 แสดงเป้าหมายและโรคประจำตัว (บรรทัดสอง)
+                    // 🌟 แสดงเป้าหมายและโรคประจำตัว
                     Text('🩺 โรคประจำตัว: $disease', style: const TextStyle(fontSize: 13, color: Colors.redAccent, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     Text('🎯 เป้าหมาย: $goal', style: TextStyle(fontSize: 13, color: Colors.orange.shade800, fontWeight: FontWeight.bold)),
-                         
+                          
                     const SizedBox(height: 16),
                     
                     OutlinedButton.icon(
@@ -142,10 +170,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       ),
                       onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const EditProfilePage()),
-                        );
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const EditProfilePage()));
                       },
                     ),
                   ],
@@ -167,21 +192,13 @@ class _ProfilePageState extends State<ProfilePage> {
           
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('menus')
-                  .where('authorEmail', isEqualTo: user?.email)
-                  .snapshots(),
+              stream: FirebaseFirestore.instance.collection('menus').where('authorEmail', isEqualTo: user?.email).snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return const Center(child: Text('เกิดข้อผิดพลาดในการโหลดข้อมูลเมนู'));
-                }
+                if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+                if (snapshot.hasError) return const Center(child: Text('เกิดข้อผิดพลาดในการโหลดข้อมูลเมนู'));
                 
                 final docs = snapshot.data?.docs ?? [];
-                final myMenus = docs.map((doc) => 
-                  MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList();
+                final myMenus = docs.map((doc) => MenuModel.fromMap(doc.id, doc.data() as Map<String, dynamic>)).toList();
 
                 if (myMenus.isEmpty) {
                   return Center(
@@ -210,13 +227,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         leading: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: menu.imageUrl.isNotEmpty && menu.imageUrl.startsWith('http')
-                              ? Image.network(
-                                  menu.imageUrl, 
-                                  width: 55, 
-                                  height: 55, 
-                                  fit: BoxFit.cover, 
-                                  errorBuilder: (c, e, s) => Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood))
-                                )
+                              ? Image.network(menu.imageUrl, width: 55, height: 55, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood)))
                               : Container(color: Colors.grey.shade200, width: 55, height: 55, child: const Icon(Icons.fastfood)),
                         ),
                         title: Text(menu.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
@@ -224,21 +235,11 @@ class _ProfilePageState extends State<ProfilePage> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            IconButton(
-                              icon: const Icon(Icons.edit, color: Colors.orange), 
-                              onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => EditMenuPage(menu: menu)));
-                              }
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.redAccent), 
-                              onPressed: () => _deleteMenu(menu.id)
-                            ),
+                            IconButton(icon: const Icon(Icons.edit, color: Colors.orange), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => EditMenuPage(menu: menu)))),
+                            IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _deleteMenu(menu.id)),
                           ],
                         ),
-                        onTap: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu)));
-                        },
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => MenuDetailPage(menu: menu))),
                       ),
                     );
                   },

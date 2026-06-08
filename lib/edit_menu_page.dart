@@ -16,7 +16,6 @@ class EditMenuPage extends StatefulWidget {
 
 class _EditMenuPageState extends State<EditMenuPage> {
   late TextEditingController nameController;
-  late TextEditingController categoryController;
   late TextEditingController descriptionController;
   late TextEditingController ingredientsController;
   late TextEditingController stepsController;
@@ -28,12 +27,17 @@ class _EditMenuPageState extends State<EditMenuPage> {
   File? selectedImage;
   bool isLoading = false;
 
+  // 🌟 เพิ่มตัวแปรสำหรับ Dropdown ประเภทอาหาร
+  final List<String> _categories = [
+    'ต้ม', 'ผัด', 'แกง', 'ทอด', 'นึ่ง', 'ย่าง', 'ยำ', 
+    'อาหารคลีน', 'มังสวิรัติ', 'วีแกน', 'ของหวาน', 'เครื่องดื่ม', 'อื่นๆ'
+  ];
+  String? _selectedCategory;
+
   @override
   void initState() {
     super.initState();
-    // แปลงข้อมูลจาก Model มาใส่ใน Controller (ถ้าเป็น List ให้รวมเป็น String ด้วยลูกน้ำ)
     nameController = TextEditingController(text: widget.menu.name);
-    categoryController = TextEditingController(text: widget.menu.category);
     descriptionController = TextEditingController(text: widget.menu.description);
     ingredientsController = TextEditingController(text: widget.menu.ingredients.join(', '));
     stepsController = TextEditingController(text: widget.menu.steps.join(', '));
@@ -41,12 +45,19 @@ class _EditMenuPageState extends State<EditMenuPage> {
     proteinController = TextEditingController(text: widget.menu.protein.toString());
     suitableForDiseaseController = TextEditingController(text: widget.menu.suitableForDisease.join(', '));
     suitableForGoalController = TextEditingController(text: widget.menu.suitableForGoal.join(', '));
+
+    // 🌟 ตั้งค่าเริ่มต้นให้ Dropdown
+    String initialCat = widget.menu.category;
+    // ถ้าประเภทอาหารเดิมไม่มีในลิสต์ ให้แอดเพิ่มเข้าไปอัตโนมัติเพื่อไม่ให้แอปบัค
+    if (!_categories.contains(initialCat) && initialCat.isNotEmpty) {
+      _categories.add(initialCat);
+    }
+    _selectedCategory = initialCat.isNotEmpty ? initialCat : null;
   }
 
   @override
   void dispose() {
     nameController.dispose();
-    categoryController.dispose();
     descriptionController.dispose();
     ingredientsController.dispose();
     stepsController.dispose();
@@ -73,6 +84,11 @@ class _EditMenuPageState extends State<EditMenuPage> {
   }
 
   Future<void> updateMenu() async {
+    if (nameController.text.isEmpty || _selectedCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณากรอกชื่อและเลือกประเภทอาหาร')));
+      return;
+    }
+
     try {
       setState(() => isLoading = true);
       String imageUrl = widget.menu.imageUrl;
@@ -86,7 +102,7 @@ class _EditMenuPageState extends State<EditMenuPage> {
 
       await FirebaseFirestore.instance.collection('menus').doc(widget.menu.id).update({
         'name': nameController.text.trim(),
-        'category': categoryController.text.trim(),
+        'category': _selectedCategory ?? '', // 🌟 อัปเดตประเภทอาหารจาก Dropdown
         'description': descriptionController.text.trim(),
         'ingredients': textToList(ingredientsController.text),
         'steps': textToList(stepsController.text),
@@ -172,7 +188,24 @@ class _EditMenuPageState extends State<EditMenuPage> {
                 children: [
                   TextField(controller: nameController, decoration: inputStyle('ชื่อเมนู', Icons.restaurant)),
                   const SizedBox(height: 16),
-                  TextField(controller: categoryController, decoration: inputStyle('ประเภทอาหาร', Icons.category)),
+                  
+                  // 🌟 เปลี่ยนเป็น DropdownButtonFormField สำหรับประเภทอาหาร
+                  DropdownButtonFormField<String>(
+                    value: _selectedCategory,
+                    decoration: inputStyle('ประเภทอาหาร', Icons.category),
+                    items: _categories.map((String category) {
+                      return DropdownMenuItem<String>(
+                        value: category,
+                        child: Text(category),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        _selectedCategory = newValue;
+                      });
+                    },
+                  ),
+
                   const SizedBox(height: 16),
                   TextField(controller: descriptionController, maxLines: 2, decoration: inputStyle('รายละเอียด', Icons.description)),
                   const SizedBox(height: 16),

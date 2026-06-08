@@ -14,7 +14,6 @@ class AddMenuPage extends StatefulWidget {
 
 class _AddMenuPageState extends State<AddMenuPage> {
   final nameController = TextEditingController();
-  final categoryController = TextEditingController();
   final descriptionController = TextEditingController();
   final ingredientsController = TextEditingController(); 
   final stepsController = TextEditingController();
@@ -26,7 +25,14 @@ class _AddMenuPageState extends State<AddMenuPage> {
   File? selectedImage;
   bool isLoading = false;
 
-  // 🌟 ตัวแปรสำหรับระบบเลือกวัตถุดิบอัจฉริยะ
+  // 🌟 เพิ่มตัวแปรสำหรับ Dropdown ประเภทอาหาร
+  final List<String> _categories = [
+    'ต้ม', 'ผัด', 'แกง', 'ทอด', 'นึ่ง', 'ย่าง', 'ยำ', 
+    'อาหารคลีน', 'มังสวิรัติ', 'วีแกน', 'ของหวาน', 'เครื่องดื่ม', 'อื่นๆ'
+  ];
+  String? _selectedCategory;
+
+  // ตัวแปรสำหรับระบบเลือกวัตถุดิบอัจฉริยะ
   List<Map<String, dynamic>> availableIngredients = []; 
   List<Map<String, dynamic>> selectedIngredients = []; 
 
@@ -36,7 +42,6 @@ class _AddMenuPageState extends State<AddMenuPage> {
     _loadIngredientsFromDB();
   }
 
-  // 🌟 โหลดรายชื่อวัตถุดิบจากเว็บ Admin
   Future<void> _loadIngredientsFromDB() async {
     try {
       final snap = await FirebaseFirestore.instance.collection('ingredients').get();
@@ -50,7 +55,6 @@ class _AddMenuPageState extends State<AddMenuPage> {
     }
   }
 
-  // 🌟 ฟังก์ชันคำนวณโภชนาการอัตโนมัติ (แก้ไขใหม่ให้ดึงข้อมูลแม่นยำขึ้น)
   void _calculateNutrition() {
     double totalCal = 0;
     double totalProtein = 0;
@@ -59,23 +63,19 @@ class _AddMenuPageState extends State<AddMenuPage> {
       final ing = item['ingredient'];
       final double grams = item['grams'];
 
-      // ดึงค่าอย่างปลอดภัย (รองรับทั้งชื่อคีย์ cal และ calories)
       final double calPer100 = double.tryParse(ing['cal']?.toString() ?? ing['calories']?.toString() ?? '0') ?? 0.0;
       final double proteinPer100 = double.tryParse(ing['protein']?.toString() ?? '0') ?? 0.0;
 
-      // สูตร: (ปริมาณที่ใช้ / 100) * ค่าโภชนาการต่อ 100 กรัม
       totalCal += (grams / 100) * calPer100;
       totalProtein += (grams / 100) * proteinPer100;
     }
 
-    // อัปเดตตัวเลขลงในช่องให้ผู้ใช้เห็นทันที
     setState(() {
       caloriesController.text = totalCal.round().toString();
       proteinController.text = totalProtein.round().toString();
     });
   }
 
-  // 🌟 ฟังก์ชันแสดงหน้าต่างเลือกวัตถุดิบ
   void _showAddIngredientDialog() {
     Map<String, dynamic>? currentSelectedIng;
     final TextEditingController gramsController = TextEditingController();
@@ -151,7 +151,7 @@ class _AddMenuPageState extends State<AddMenuPage> {
                           'grams': double.tryParse(gramsController.text.trim()) ?? 0,
                         });
                       });
-                      _calculateNutrition(); // สั่งคำนวณทันทีหลังกดเพิ่ม
+                      _calculateNutrition(); 
                       Navigator.pop(context);
                     }
                   },
@@ -188,11 +188,11 @@ class _AddMenuPageState extends State<AddMenuPage> {
 
   Future<void> addMenu() async {
     final name = nameController.text.trim();
-    final category = categoryController.text.trim();
+    final category = _selectedCategory ?? ''; // 🌟 ดึงค่าจาก Dropdown
     final description = descriptionController.text.trim();
     
     if (name.isEmpty || category.isEmpty || description.isEmpty) {
-      showMessage('กรุณากรอกชื่อเมนู ประเภท และรายละเอียดให้ครบ');
+      showMessage('กรุณากรอกชื่อเมนู เลือกประเภท และรายละเอียดให้ครบ');
       return;
     }
 
@@ -206,16 +206,14 @@ class _AddMenuPageState extends State<AddMenuPage> {
 
       final userEmail = FirebaseAuth.instance.currentUser?.email ?? 'ไม่ระบุตัวตน';
 
-      // รวมวัตถุดิบจากระบบคำนวณและที่พิมพ์เองเข้าด้วยกัน
       List<String> finalIngredientsList = selectedIngredients.map((item) {
         return "${item['ingredient']['name']} ${item['grams']} กรัม";
       }).toList();
       finalIngredientsList.addAll(textToList(ingredientsController.text));
 
-      // บันทึกลง Firestore
       await FirebaseFirestore.instance.collection('menus').add({
         'name': name,
-        'category': category,
+        'category': category, // 🌟 บันทึกประเภทที่เลือกจาก Dropdown
         'description': description,
         'ingredients': finalIngredientsList,
         'steps': textToList(stepsController.text),
@@ -256,7 +254,6 @@ class _AddMenuPageState extends State<AddMenuPage> {
   @override
   void dispose() {
     nameController.dispose();
-    categoryController.dispose();
     descriptionController.dispose();
     ingredientsController.dispose();
     stepsController.dispose();
@@ -305,7 +302,24 @@ class _AddMenuPageState extends State<AddMenuPage> {
                   const SizedBox(height: 16),
                   TextField(controller: nameController, decoration: inputStyle('ชื่อเมนู', Icons.restaurant)),
                   const SizedBox(height: 16),
-                  TextField(controller: categoryController, decoration: inputStyle('ประเภทอาหาร', Icons.category)),
+                  
+                  // 🌟 เปลี่ยนเป็น DropdownButtonFormField สำหรับประเภทอาหาร
+                  DropdownButtonFormField<String>(
+                    value: _selectedCategory,
+                    decoration: inputStyle('ประเภทอาหาร', Icons.category),
+                    items: _categories.map((String category) {
+                      return DropdownMenuItem<String>(
+                        value: category,
+                        child: Text(category),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        _selectedCategory = newValue;
+                      });
+                    },
+                  ),
+
                   const SizedBox(height: 16),
                   TextField(controller: descriptionController, maxLines: 3, decoration: inputStyle('รายละเอียดเมนู', Icons.description)),
                   
@@ -345,7 +359,7 @@ class _AddMenuPageState extends State<AddMenuPage> {
                                 setState(() {
                                   selectedIngredients.removeAt(idx);
                                 });
-                                _calculateNutrition(); // ลบแล้วให้คำนวณใหม่
+                                _calculateNutrition(); 
                               },
                             ),
                           );
