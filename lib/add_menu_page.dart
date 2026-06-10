@@ -25,14 +25,21 @@ class _AddMenuPageState extends State<AddMenuPage> {
   File? selectedImage;
   bool isLoading = false;
 
-  // 🌟 เพิ่มตัวแปรสำหรับ Dropdown ประเภทอาหาร
   final List<String> _categories = [
     'ต้ม', 'ผัด', 'แกง', 'ทอด', 'นึ่ง', 'ย่าง', 'ยำ', 
     'อาหารคลีน', 'มังสวิรัติ', 'วีแกน', 'ของหวาน', 'เครื่องดื่ม', 'อื่นๆ'
   ];
   String? _selectedCategory;
 
-  // ตัวแปรสำหรับระบบเลือกวัตถุดิบอัจฉริยะ
+  // 🌟 รายการหน่วยชั่งตวงวัดและลักษณะนามแบบจัดเต็ม
+  final List<String> _unitOptions = [
+    'กรัม (g)', 'กิโลกรัม (kg)', 'มิลลิลิตร (ml)', 'ลิตร (l)', 
+    'ช้อนโต๊ะ', 'ช้อนชา', 'ถ้วยตวง', 
+    'ลูก', 'หัว', 'ฟอง', 'ชิ้น', 'แผ่น',
+    'กลีบ', 'ต้น', 'ใบ', 'ก้าน', 'ราก',
+    'ซีก', 'มัด', 'กำ', 'หยิบมือ'
+  ];
+
   List<Map<String, dynamic>> availableIngredients = []; 
   List<Map<String, dynamic>> selectedIngredients = []; 
 
@@ -55,19 +62,46 @@ class _AddMenuPageState extends State<AddMenuPage> {
     }
   }
 
+  // 🌟 ระบบคำนวณโภชนาการอัจฉริยะ (แปลงลักษณะนามเป็นกรัมอัตโนมัติ)
   void _calculateNutrition() {
     double totalCal = 0;
     double totalProtein = 0;
 
     for (var item in selectedIngredients) {
       final ing = item['ingredient'];
-      final double grams = item['grams'];
+      final double amount = item['amount'];
+      final String unit = item['unit'];
 
       final double calPer100 = double.tryParse(ing['cal']?.toString() ?? ing['calories']?.toString() ?? '0') ?? 0.0;
       final double proteinPer100 = double.tryParse(ing['protein']?.toString() ?? '0') ?? 0.0;
 
-      totalCal += (grams / 100) * calPer100;
-      totalProtein += (grams / 100) * proteinPer100;
+      double calculatedGrams = amount; 
+      
+      // แปลงหน่วยชั่งตวงวัดและลักษณะนามเป็น "กรัม" โดยประมาณ
+      if (unit == 'กิโลกรัม (kg)' || unit == 'ลิตร (l)') {
+        calculatedGrams = amount * 1000;
+      } else if (unit == 'ถ้วยตวง') {
+        calculatedGrams = amount * 240; 
+      } else if (unit == 'ช้อนโต๊ะ') {
+        calculatedGrams = amount * 15;
+      } else if (unit == 'ช้อนชา') {
+        calculatedGrams = amount * 5;
+      } else if (unit == 'ฟอง') {
+        calculatedGrams = amount * 50; // ไข่ 1 ฟอง ประมาณ 50 กรัม
+      } else if (unit == 'ลูก' || unit == 'หัว') {
+        calculatedGrams = amount * 100; // ผลไม้/ผัก 1 ลูก/หัว ประมาณ 100 กรัม
+      } else if (unit == 'ชิ้น' || unit == 'แผ่น' || unit == 'ซีก') {
+        calculatedGrams = amount * 30; // 1 ชิ้น/แผ่น ประมาณ 30 กรัม
+      } else if (unit == 'กลีบ') {
+        calculatedGrams = amount * 3; // กระเทียม 1 กลีบ ประมาณ 3 กรัม
+      } else if (unit == 'ก้าน' || unit == 'ใบ') {
+        calculatedGrams = amount * 2; // ผัก 1 ใบ/ก้าน ประมาณ 2 กรัม
+      } else if (unit == 'มัด' || unit == 'กำ') {
+        calculatedGrams = amount * 50; // ผัก 1 กำ ประมาณ 50 กรัม
+      }
+
+      totalCal += (calculatedGrams / 100) * calPer100;
+      totalProtein += (calculatedGrams / 100) * proteinPer100;
     }
 
     setState(() {
@@ -78,7 +112,8 @@ class _AddMenuPageState extends State<AddMenuPage> {
 
   void _showAddIngredientDialog() {
     Map<String, dynamic>? currentSelectedIng;
-    final TextEditingController gramsController = TextEditingController();
+    final TextEditingController amountController = TextEditingController();
+    String tempUnit = 'กรัม (g)'; // ค่าเริ่มต้น
 
     showDialog(
       context: context,
@@ -121,15 +156,40 @@ class _AddMenuPageState extends State<AddMenuPage> {
                   ),
                   const SizedBox(height: 16),
                   
-                  TextField(
-                    controller: gramsController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'ปริมาณที่ใช้ (กรัม)',
-                      filled: true,
-                      fillColor: Colors.grey.shade100,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: amountController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: InputDecoration(
+                            labelText: 'ปริมาณ',
+                            filled: true,
+                            fillColor: Colors.grey.shade100,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 3,
+                        child: DropdownButtonFormField<String>(
+                          value: tempUnit,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: Colors.grey.shade100,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          ),
+                          items: _unitOptions.map((u) => DropdownMenuItem(value: u, child: Text(u, style: const TextStyle(fontSize: 14)))).toList(),
+                          onChanged: (val) {
+                            setDialogState(() => tempUnit = val!);
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -144,11 +204,12 @@ class _AddMenuPageState extends State<AddMenuPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () {
-                    if (currentSelectedIng != null && gramsController.text.isNotEmpty) {
+                    if (currentSelectedIng != null && amountController.text.isNotEmpty) {
                       setState(() {
                         selectedIngredients.add({
                           'ingredient': currentSelectedIng,
-                          'grams': double.tryParse(gramsController.text.trim()) ?? 0,
+                          'amount': double.tryParse(amountController.text.trim()) ?? 0,
+                          'unit': tempUnit, 
                         });
                       });
                       _calculateNutrition(); 
@@ -188,7 +249,7 @@ class _AddMenuPageState extends State<AddMenuPage> {
 
   Future<void> addMenu() async {
     final name = nameController.text.trim();
-    final category = _selectedCategory ?? ''; // 🌟 ดึงค่าจาก Dropdown
+    final category = _selectedCategory ?? ''; 
     final description = descriptionController.text.trim();
     
     if (name.isEmpty || category.isEmpty || description.isEmpty) {
@@ -207,13 +268,17 @@ class _AddMenuPageState extends State<AddMenuPage> {
       final userEmail = FirebaseAuth.instance.currentUser?.email ?? 'ไม่ระบุตัวตน';
 
       List<String> finalIngredientsList = selectedIngredients.map((item) {
-        return "${item['ingredient']['name']} ${item['grams']} กรัม";
+        String amt = item['amount'].toString();
+        if (amt.endsWith('.0')) amt = amt.substring(0, amt.length - 2);
+        
+        return "${item['ingredient']['name']} $amt ${item['unit']}";
       }).toList();
+      
       finalIngredientsList.addAll(textToList(ingredientsController.text));
 
       await FirebaseFirestore.instance.collection('menus').add({
         'name': name,
-        'category': category, // 🌟 บันทึกประเภทที่เลือกจาก Dropdown
+        'category': category, 
         'description': description,
         'ingredients': finalIngredientsList,
         'steps': textToList(stepsController.text),
@@ -303,7 +368,6 @@ class _AddMenuPageState extends State<AddMenuPage> {
                   TextField(controller: nameController, decoration: inputStyle('ชื่อเมนู', Icons.restaurant)),
                   const SizedBox(height: 16),
                   
-                  // 🌟 เปลี่ยนเป็น DropdownButtonFormField สำหรับประเภทอาหาร
                   DropdownButtonFormField<String>(
                     value: _selectedCategory,
                     decoration: inputStyle('ประเภทอาหาร', Icons.category),
@@ -348,11 +412,15 @@ class _AddMenuPageState extends State<AddMenuPage> {
                         children: selectedIngredients.asMap().entries.map((entry) {
                           final idx = entry.key;
                           final data = entry.value;
+                          
+                          String amt = data['amount'].toString();
+                          if (amt.endsWith('.0')) amt = amt.substring(0, amt.length - 2);
+
                           return ListTile(
                             dense: true,
                             leading: const Icon(Icons.check_circle, color: Colors.green, size: 20),
                             title: Text(data['ingredient']['name']),
-                            subtitle: Text('${data['grams']} กรัม'),
+                            subtitle: Text('$amt ${data['unit']}'), 
                             trailing: IconButton(
                               icon: const Icon(Icons.delete_outline, color: Colors.red),
                               onPressed: () {
@@ -384,7 +452,7 @@ class _AddMenuPageState extends State<AddMenuPage> {
 
                   const Text('ข้อมูลโภชนาการ (อัตโนมัติ)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  const Text('*ตัวเลขนี้ถูกคำนวณจากวัตถุดิบหลักที่คุณเลือก (สามารถแก้ไขเองได้)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const Text('*ตัวเลขนี้กะปริมาณตามหน่วยที่คุณเลือกให้ใกล้เคียงความจริงที่สุด\nหากต้องการความเป๊ะ สามารถแก้ไขตัวเลขเองได้เลยครับ', style: TextStyle(fontSize: 12, color: Colors.grey)),
                   const SizedBox(height: 16),
                   
                   Row(
