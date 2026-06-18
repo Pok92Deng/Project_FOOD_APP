@@ -139,7 +139,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     if (birthDateStr.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
-                        child: Text(birthDateStr, style: TextStyle(fontSize: 13, color: Colors.pink.shade300, fontWeight: FontWeight.w600)),
+                        child: Text(birthDateStr, style: TextStyle(fontSize: 13, color: const Color.fromARGB(255, 0, 0, 0), fontWeight: FontWeight.w600)),
                       ),
                     
                     const SizedBox(height: 16),

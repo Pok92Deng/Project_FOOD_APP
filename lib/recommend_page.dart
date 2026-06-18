@@ -12,29 +12,58 @@ class RecommendPage extends StatefulWidget {
 }
 
 class _RecommendPageState extends State<RecommendPage> {
-  final List<String> diseaseOptions = [
-    'ความดัน', 'เบาหวาน', 'ไขมันในเลือด', 'โรคหัวใจ', 'หลอดเลือดสมอง', 
-    'โรคไต', 'โรคมะเร็ง', 'โรคอ้วน', 'ภูมิแพ้', 'หอบหืด', 'โรคปอด', 'เกาต์', 'ไทรอยด์'
-  ];
-  final List<String> goalOptions = ['ลดน้ำหนัก', 'เพิ่มกล้ามเนื้อ', 'รักษาสุขภาพ', 'อาหารคลีน', 'คีโต', 'มังสวิรัติ'];
+  // 🌟 ตัวแปรดึงรายชื่อโรคจาก Firestore
+  List<String> diseaseOptions = [];
+  bool isLoadingDiseases = true; 
+
+  final List<String> goalOptions = ['ลดน้ำหนัก', 'เพิ่มกล้ามเนื้อ', 'รักษาสุขภาพ', 'อาหารคลีน', 'มังสวิรัติ'];
 
   List<String> selectedDiseases = [];
   List<String> selectedGoals = [];
 
-  // 🌟 ตัวแปรสำหรับระบบรู้ใจ (Personalized)
-  bool usePersonalizedProfile = true; // เปิดโหมดดึงข้อมูลโปรไฟล์โดยปริยาย
-  List<String> userFavoriteCategories = []; // เก็บหมวดหมู่ที่ผู้ใช้ชอบ
+  // 🌟 ตัวแปรสำหรับระบบรู้ใจ
+  bool usePersonalizedProfile = true; 
+  List<String> userFavoriteCategories = []; 
   bool isLoadingPreferences = true;
 
   @override
   void initState() {
     super.initState();
-    _analyzeUserPreferences(); // สั่งให้ระบบวิเคราะห์ความชอบทันทีที่เปิดหน้านี้
+    _loadDiseasesFromFirestore(); 
+    _analyzeUserPreferences(); 
   }
 
-  // ==========================================
-  // 🧠 ระบบวิเคราะห์พฤติกรรมผู้ใช้ (แอบดูว่าชอบกดหัวใจเมนูแบบไหน)
-  // ==========================================
+  Future<void> _loadDiseasesFromFirestore() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance.collection('diseases').get();
+      
+      List<String> loadedDiseases = [];
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final status = data['status']?.toString().toLowerCase();
+        
+        if (status != 'pending' && status != 'rejected') {
+          final String name = data['name'] ?? '';
+          if (name.isNotEmpty && !loadedDiseases.contains(name)) {
+            loadedDiseases.add(name);
+          }
+        }
+      }
+
+      setState(() {
+        diseaseOptions = loadedDiseases;
+        isLoadingDiseases = false; 
+      });
+      
+    } catch (e) {
+      print('เกิดข้อผิดพลาดในการดึงข้อมูลโรค: $e');
+      setState(() {
+        diseaseOptions = ['ความดัน', 'เบาหวาน', 'ไขมันในเลือด', 'โรคหัวใจ', 'โรคไต'];
+        isLoadingDiseases = false;
+      });
+    }
+  }
+
   Future<void> _analyzeUserPreferences() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -43,7 +72,6 @@ class _RecommendPageState extends State<RecommendPage> {
     }
 
     try {
-      // 1. ดึงรายการเมนูที่ผู้ใช้เคยกดหัวใจไว้
       final favSnapshot = await FirebaseFirestore.instance
           .collection('favorites')
           .where('userId', isEqualTo: user.uid)
@@ -54,7 +82,6 @@ class _RecommendPageState extends State<RecommendPage> {
         return;
       }
 
-      // 2. ดึงข้อมูลเมนูแบบเต็มเพื่อดูหมวดหมู่ (Category)
       Map<String, int> categoryCount = {};
       final menuIds = favSnapshot.docs.map((doc) => doc['menuId'] as String).toList();
 
@@ -70,25 +97,20 @@ class _RecommendPageState extends State<RecommendPage> {
         }
       }
 
-      // 3. คัดเลือกหมวดหมู่ที่ชอบมากที่สุด (มีคะแนนโหวตสูงสุด)
       var sortedCategories = categoryCount.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value)); // เรียงจากมากไปน้อย
+        ..sort((a, b) => b.value.compareTo(a.value)); 
 
       setState(() {
-        // เก็บหมวดหมู่สุดโปรดไว้ 3 อันดับแรก
         userFavoriteCategories = sortedCategories.take(3).map((e) => e.key).toList();
         isLoadingPreferences = false;
       });
       
-      print('🌟 หมวดหมู่ที่ผู้ใช้ชอบมากที่สุด: $userFavoriteCategories');
-
     } catch (e) {
       print('เกิดข้อผิดพลาดในการวิเคราะห์พฤติกรรม: $e');
       setState(() => isLoadingPreferences = false);
     }
   }
 
-  // 🧠 ฟังก์ชันเทียบคำอัจฉริยะ (Fuzzy Match)
   bool isSmartMatch(String word1, String word2) {
     String clean1 = word1.replaceAll('โรค', '').trim().toLowerCase();
     String clean2 = word2.replaceAll('โรค', '').trim().toLowerCase();
@@ -96,45 +118,82 @@ class _RecommendPageState extends State<RecommendPage> {
     return clean1.contains(clean2) || clean2.contains(clean1);
   }
 
-  // ฟังก์ชันสร้างปุ่มเลือกแบบ "เลื่อนแนวนอน"
-  Widget buildHorizontalFilterChips(List<String> options, List<String> selectedList, Color activeColor) {
-    return SizedBox(
-      height: 45,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: options.length,
-        itemBuilder: (context, index) {
-          final option = options[index];
-          final isSelected = selectedList.contains(option);
-          
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Text(option),
-              labelStyle: TextStyle(
-                color: isSelected ? Colors.white : Colors.black87,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+  // ==========================================
+  // 🌟 ฟังก์ชันสร้าง Dropdown แบบให้แท็กอยู่ด้านในกล่อง
+  // ==========================================
+  Widget buildMultiSelectDropdown({
+    required String hint,
+    required List<String> options,
+    required List<String> selectedList,
+    required Color activeColor,
+  }) {
+    List<String> availableOptions = options.where((item) => !selectedList.contains(item)).toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(left: 16, right: 16, top: 12, bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. ป้ายแท็ก (Chips) ของสิ่งที่เลือกไปแล้ว (อยู่ข้างในกล่อง)
+          if (selectedList.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: selectedList.map((selectedItem) {
+                  return InputChip(
+                    label: Text(selectedItem),
+                    labelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    backgroundColor: activeColor,
+                    deleteIconColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      side: BorderSide(color: activeColor), // ลบขอบดำ
+                    ),
+                    onDeleted: () {
+                      setState(() {
+                        selectedList.remove(selectedItem);
+                      });
+                    },
+                  );
+                }).toList(),
               ),
-              backgroundColor: Colors.grey.shade100,
-              selectedColor: activeColor,
-              checkmarkColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: BorderSide(color: isSelected ? activeColor : Colors.grey.shade300),
+            ),
+            
+          // 2. ช่อง Dropdown (ถ้ามีแท็กแล้วจะยุบขนาดให้เล็กลง)
+          DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              isDense: selectedList.isNotEmpty, // ทำให้ dropdown เล็กลงเมื่อมีแท็ก เพื่อไม่ให้กล่องสูงเกิน
+              hint: Text(
+                selectedList.isEmpty ? hint : 'เลือกเพิ่ม...', 
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 14)
               ),
-              selected: isSelected,
-              onSelected: (selected) {
-                setState(() {
-                  if (selected) {
-                    selectedList.add(option);
-                  } else {
-                    selectedList.remove(option);
-                  }
-                });
+              icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+              value: null, 
+              items: availableOptions.map((String option) {
+                return DropdownMenuItem<String>(
+                  value: option,
+                  child: Text(option),
+                );
+              }).toList(),
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  setState(() {
+                    selectedList.add(newValue);
+                  });
+                }
               },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -166,17 +225,32 @@ class _RecommendPageState extends State<RecommendPage> {
               children: [
                 const Text('🩺 โรคประจำตัวของคุณ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 8),
-                buildHorizontalFilterChips(diseaseOptions, selectedDiseases, Colors.redAccent),
+                
+                isLoadingDiseases 
+                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                  : diseaseOptions.isEmpty 
+                    ? const Text('ไม่พบข้อมูลโรค', style: TextStyle(color: Colors.grey))
+                    : buildMultiSelectDropdown(
+                        hint: 'กดเพื่อเลือกโรคประจำตัว...',
+                        options: diseaseOptions,
+                        selectedList: selectedDiseases,
+                        activeColor: Colors.redAccent,
+                      ),
                 
                 const SizedBox(height: 16),
                 
                 const Text('🎯 เป้าหมายสุขภาพ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 8),
-                buildHorizontalFilterChips(goalOptions, selectedGoals, Colors.green),
+                
+                buildMultiSelectDropdown(
+                  hint: 'กดเพื่อเลือกเป้าหมายสุขภาพ...',
+                  options: goalOptions,
+                  selectedList: selectedGoals,
+                  activeColor: Colors.green,
+                ),
 
                 const SizedBox(height: 16),
 
-                // 🌟 เพิ่มสวิตช์ "โหมดรู้ใจ (Personalized Profile)"
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
@@ -191,7 +265,7 @@ class _RecommendPageState extends State<RecommendPage> {
                         children: [
                           Icon(Icons.auto_awesome, color: Colors.purple.shade700, size: 20),
                           const SizedBox(width: 8),
-                          Text('แนะนำเมนูจากความชอบของคุณ', 
+                          Text('แนะนำเมนูจากความชอบ', 
                             style: TextStyle(color: Colors.purple.shade700, fontWeight: FontWeight.bold),
                           ),
                         ],
@@ -249,15 +323,13 @@ class _RecommendPageState extends State<RecommendPage> {
                       List<Map<String, dynamic>> recommendedMenus = [];
 
                       for (var menu in menus) {
-                        double matchScore = 0; // เปลี่ยนเป็น double เพื่อเก็บคะแนนย่อย
+                        double matchScore = 0; 
                         int totalConditions = selectedDiseases.length + selectedGoals.length;
                         
-                        // ถ้าไม่ได้เลือกอะไรเลย แต่เปิดโหมดความชอบ ให้ฐานคะแนนเป็น 1 เพื่อให้ระบบคำนวณได้
                         if (totalConditions == 0 && usePersonalizedProfile) {
                           totalConditions = 1; 
                         }
 
-                        // 1. ตรวจสอบเงื่อนไขสุขภาพหลัก (โรคและเป้าหมาย)
                         for (var d in selectedDiseases) {
                           if (menu.suitableForDisease.any((md) => isSmartMatch(md, d))) matchScore += 1;
                         }
@@ -265,15 +337,12 @@ class _RecommendPageState extends State<RecommendPage> {
                           if (menu.suitableForGoal.any((mg) => isSmartMatch(mg, g))) matchScore += 1;
                         }
 
-                        // 🌟 2. ให้คะแนนโบนัสพิเศษจาก Profile ความชอบ (ถ้าเปิดสวิตช์อยู่)
                         if (usePersonalizedProfile && userFavoriteCategories.isNotEmpty) {
                           if (userFavoriteCategories.contains(menu.category)) {
-                            // ให้คะแนนโบนัส 0.5 แต้ม (ไม่เยอะเกินไปจนกลบเงื่อนไขสุขภาพ แต่มากพอที่จะดันเมนูนี้ขึ้นบน)
                             matchScore += 0.5;
                           }
                         }
 
-                        // ถ้ามีคะแนน (ไม่ว่าจะจากสุขภาพหรือความชอบ) ก็เอามาแสดง
                         if (matchScore > 0) {
                           int matchPercentage = ((matchScore / totalConditions) * 100).toInt();
                           recommendedMenus.add({
@@ -284,7 +353,6 @@ class _RecommendPageState extends State<RecommendPage> {
                         }
                       }
 
-                      // เรียงลำดับตามคะแนนความเหมาะสม (ใครคะแนนสูงสุดอยู่บนสุด)
                       recommendedMenus.sort((a, b) => b['score'].compareTo(a['score']));
 
                       if (recommendedMenus.isEmpty) {
@@ -308,7 +376,6 @@ class _RecommendPageState extends State<RecommendPage> {
                           final MenuModel menu = item['menu'];
                           final int percentage = item['percentage'];
                           
-                          // เช็คว่าเป็นเมนูที่ได้โบนัสจากความชอบหรือไม่
                           final bool isFavoriteCategory = usePersonalizedProfile && userFavoriteCategories.contains(menu.category);
 
                           return Card(
@@ -334,7 +401,6 @@ class _RecommendPageState extends State<RecommendPage> {
                                         ),
                                       ),
                                       
-                                      // ป้ายเปอร์เซ็นต์ความเหมาะสม
                                       Positioned(
                                         top: 12, right: 12,
                                         child: Container(
@@ -354,7 +420,6 @@ class _RecommendPageState extends State<RecommendPage> {
                                         ),
                                       ),
 
-                                      // 🌟 ป้ายบอกว่านี่คือเมนูที่ตรงกับความชอบของผู้ใช้
                                       if (isFavoriteCategory)
                                         Positioned(
                                           top: 12, left: 12,

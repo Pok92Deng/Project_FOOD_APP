@@ -188,7 +188,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 onTap: () => _selectDate(context),
                 decoration: InputDecoration(
                   labelText: 'วัน/เดือน/ปีเกิด',
-                  prefixIcon: const Icon(Icons.cake, color: Colors.pinkAccent),
+                  prefixIcon: const Icon(Icons.cake, color: Color.fromARGB(255, 0, 0, 0)),
                   suffixIcon: const Icon(Icons.calendar_today, color: Colors.grey),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
